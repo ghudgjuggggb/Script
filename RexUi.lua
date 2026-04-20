@@ -300,18 +300,30 @@ function RexUi:CreateWindow(config)
     shadowImg.ZIndex = 0
     shadowImg.Parent = sg
 
+    -- ── Main frame — ClipsDescendants clips children to the rounded rect ──────
     local main = Instance.new("Frame")
     main.Name = "RexMain"
     main.AnchorPoint = Vector2.new(0.5, 0.5)
     main.Size = UDim2.new(0, winW, 0, winH)
     main.Position = UDim2.new(0.5, 0, 0.5, 0)
     main.BackgroundColor3 = T.BG
-    main.ClipsDescendants = true
+    main.ClipsDescendants = true   -- clips children to rounded rect
     main.ZIndex = 1
     main.Parent = sg
     corner(main, sc(14))
-    stroke(main, T.Border, 1.5)
 
+    -- Border drawn by a separate overlay frame so it sits on top of content
+    -- and doesn't bleed outside the rounded rect like UIStroke does
+    local borderOverlay = Instance.new("Frame")
+    borderOverlay.Name = "BorderOverlay"
+    borderOverlay.Size = UDim2.new(1, 0, 1, 0)
+    borderOverlay.BackgroundTransparency = 1
+    borderOverlay.ZIndex = 99
+    borderOverlay.Parent = main
+    corner(borderOverlay, sc(14))
+    stroke(borderOverlay, T.Border, 1.5)
+
+    -- ── Title bar — rounded top corners to match main ────────────────────────
     local titleBar = Instance.new("Frame")
     titleBar.Name = "TitleBar"
     titleBar.Size = UDim2.new(1, 0, 0, titleH)
@@ -319,6 +331,16 @@ function RexUi:CreateWindow(config)
     titleBar.BorderSizePixel = 0
     titleBar.ZIndex = 2
     titleBar.Parent = main
+    -- Round only top corners: apply full corner then cover bottom corners
+    -- with matching background squares so they look square
+    corner(titleBar, sc(14))
+    local tbBotCover = Instance.new("Frame")
+    tbBotCover.Size = UDim2.new(1, 0, 0, sc(14))
+    tbBotCover.Position = UDim2.new(0, 0, 1, -sc(14))
+    tbBotCover.BackgroundColor3 = T.Sidebar
+    tbBotCover.BorderSizePixel = 0
+    tbBotCover.ZIndex = 2
+    tbBotCover.Parent = titleBar
 
     local tg = Instance.new("UIGradient")
     tg.Color = ColorSequence.new({
@@ -369,9 +391,17 @@ function RexUi:CreateWindow(config)
         corner(ver, 4)
     end
 
-    -- Drag state declared before buttons so doClose/doMin can reset it
+    -- ── Drag state (declared before buttons so callbacks can reset it) ────────
     local drag, dragStart, startPos = false, nil, nil
 
+    -- helper: check if a Vector2 point is inside a GuiObject's bounds
+    local function overObj(obj, pos)
+        local p, s = obj.AbsolutePosition, obj.AbsoluteSize
+        return pos.X >= p.X and pos.X <= p.X + s.X
+           and pos.Y >= p.Y and pos.Y <= p.Y + s.Y
+    end
+
+    -- ── Close button ─────────────────────────────────────────────────────────
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size = UDim2.new(0, btnSz, 0, btnSz)
     closeBtn.Position = UDim2.new(1, -sc(36), 0.5, -math.round(btnSz / 2))
@@ -381,19 +411,31 @@ function RexUi:CreateWindow(config)
     closeBtn.TextColor3 = T.White
     closeBtn.Text = "❌"
     closeBtn.AutoButtonColor = false
+    closeBtn.ZIndex = 5
     closeBtn.Parent = titleBar
 
     local function doClose()
         drag = false
-        tw(main, {Size = UDim2.new(0, winW, 0, 0), BackgroundTransparency = 1}, 0.3, Enum.EasingStyle.Quad)
-        task.wait(0.35)
+        -- smooth: shrink to center + fade simultaneously
+        tw(main, {Size = UDim2.new(0, winW * 0.85, 0, winH * 0.85)}, 0.25,
+            Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        tw(shadowImg, {ImageTransparency = 1}, 0.25)
+        task.wait(0.05)
+        tw(main, {BackgroundTransparency = 1}, 0.22)
+        -- fade every direct child
+        for _, ch in ipairs(main:GetChildren()) do
+            if ch:IsA("GuiObject") then
+                pcall(function() tw(ch, {BackgroundTransparency = 1}, 0.2) end)
+            end
+        end
+        task.wait(0.28)
         sg:Destroy()
     end
-    closeBtn.MouseEnter:Connect(function() tw(closeBtn, {TextTransparency = 0.35}, 0.1) end)
-    closeBtn.MouseLeave:Connect(function() tw(closeBtn, {TextTransparency = 0},    0.1) end)
-    closeBtn.MouseButton1Click:Connect(doClose)
-    closeBtn.TouchTap:Connect(doClose)
+    closeBtn.MouseEnter:Connect(function()   tw(closeBtn, {TextTransparency = 0.35}, 0.1) end)
+    closeBtn.MouseLeave:Connect(function()   tw(closeBtn, {TextTransparency = 0},    0.1) end)
+    closeBtn.Activated:Connect(doClose)   -- Activated fires on both mouse + touch
 
+    -- ── Minimize button ───────────────────────────────────────────────────────
     local minBtn = Instance.new("TextButton")
     minBtn.Size = UDim2.new(0, btnSz, 0, btnSz)
     minBtn.Position = UDim2.new(1, -sc(70), 0.5, -math.round(btnSz / 2))
@@ -403,53 +445,52 @@ function RexUi:CreateWindow(config)
     minBtn.TextColor3 = T.SubText
     minBtn.Text = "─"
     minBtn.AutoButtonColor = false
+    minBtn.ZIndex = 5
     minBtn.Parent = titleBar
     corner(minBtn, 6)
     stroke(minBtn, T.Border, 1)
 
     local isMin = false
     local function doMin()
-        drag  = false   -- stop any active drag immediately
+        drag  = false
         isMin = not isMin
         if isMin then
-            tw(main, {Size = UDim2.new(0, winW, 0, titleH)}, 0.3, Enum.EasingStyle.Quad)
+            tw(main, {Size = UDim2.new(0, winW, 0, titleH)},
+                0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
             minBtn.Text = "□"
             tw(minBtn, {TextColor3 = T.AccentSoft}, 0.15)
         else
-            tw(main, {Size = UDim2.new(0, winW, 0, winH)}, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+            tw(main, {Size = UDim2.new(0, winW, 0, winH)},
+                0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
             minBtn.Text = "─"
             tw(minBtn, {TextColor3 = T.SubText}, 0.15)
         end
     end
-    minBtn.MouseButton1Click:Connect(doMin)
-    minBtn.TouchTap:Connect(doMin)
+    minBtn.Activated:Connect(doMin)   -- Activated fires on both mouse + touch
     minBtn.MouseEnter:Connect(function() tw(minBtn, {BackgroundColor3 = T.TabHover}, 0.12) end)
     minBtn.MouseLeave:Connect(function() tw(minBtn, {BackgroundColor3 = T.Section},  0.12) end)
 
-    -- Drag: use UserInputService so gpe=true (button clicks) won't trigger drag
-    UserInputService.InputBegan:Connect(function(inp, gpe)
-        -- gpe = true means a GuiButton (minBtn / closeBtn) consumed the click → skip drag
-        if gpe then return end
+    -- ── Drag: titleBar.InputBegan, skip if touch lands on a button ────────────
+    -- This is the correct mobile-safe approach — no gpe heuristic needed
+    titleBar.InputBegan:Connect(function(inp)
         if inp.UserInputType ~= Enum.UserInputType.MouseButton1
         and inp.UserInputType ~= Enum.UserInputType.Touch then return end
-        -- only start drag when cursor is over the titleBar
-        local mp  = UserInputService:GetMouseLocation()
-        local tp  = titleBar.AbsolutePosition
-        local ts  = titleBar.AbsoluteSize
-        if mp.X >= tp.X and mp.X <= tp.X + ts.X
-        and mp.Y >= tp.Y and mp.Y <= tp.Y + ts.Y then
-            drag = true; dragStart = inp.Position; startPos = main.Position
-        end
+        local pos = inp.Position
+        -- If the touch/click is inside minBtn or closeBtn bounds, skip drag
+        if overObj(minBtn, pos) or overObj(closeBtn, pos) then return end
+        drag = true
+        dragStart = pos
+        startPos  = main.Position
     end)
     UserInputService.InputChanged:Connect(function(inp)
-        if drag and (inp.UserInputType == Enum.UserInputType.MouseMovement
-        or inp.UserInputType == Enum.UserInputType.Touch) then
-            local d = inp.Position - dragStart
-            main.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + d.X,
-                startPos.Y.Scale, startPos.Y.Offset + d.Y)
-            shadowImg.Position = main.Position
-        end
+        if not drag then return end
+        if inp.UserInputType ~= Enum.UserInputType.MouseMovement
+        and inp.UserInputType ~= Enum.UserInputType.Touch then return end
+        local d = inp.Position - dragStart
+        main.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + d.X,
+            startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        shadowImg.Position = main.Position
     end)
     UserInputService.InputEnded:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.MouseButton1
@@ -458,6 +499,7 @@ function RexUi:CreateWindow(config)
         end
     end)
 
+    -- ── Content area ─────────────────────────────────────────────────────────
     local content = Instance.new("Frame")
     content.Name = "Content"
     content.Size = UDim2.new(1, 0, 1, -titleH)
@@ -465,6 +507,7 @@ function RexUi:CreateWindow(config)
     content.BackgroundTransparency = 1
     content.Parent = main
 
+    -- ── Sidebar — NO UIStroke (it bleeds past ClipsDescendants) ──────────────
     local sidebar = Instance.new("ScrollingFrame")
     sidebar.Name = "Sidebar"
     sidebar.Size = UDim2.new(0, sideW, 1, 0)
@@ -474,7 +517,14 @@ function RexUi:CreateWindow(config)
     sidebar.CanvasSize = UDim2.new(0, 0, 0, 0)
     sidebar.AutomaticCanvasSize = Enum.AutomaticSize.Y
     sidebar.Parent = content
-    stroke(sidebar, T.Border, 1)
+    -- 1 px separator instead of UIStroke (doesn't bleed outside corners)
+    local sideDiv = Instance.new("Frame")
+    sideDiv.Size = UDim2.new(0, 1, 1, 0)
+    sideDiv.Position = UDim2.new(1, -1, 0, 0)
+    sideDiv.BackgroundColor3 = T.Border
+    sideDiv.BorderSizePixel = 0
+    sideDiv.ZIndex = 3
+    sideDiv.Parent = sidebar
 
     local sbHeader = Instance.new("TextLabel")
     sbHeader.Size = UDim2.new(1, 0, 0, sc(28))
@@ -611,8 +661,8 @@ function RexUi:CreateTab(name, iconId)
             tw(bIcon, {ImageColor3 = T.SubText},      0.12)
         end
     end)
-    btn.MouseButton1Click:Connect(function() self:_activate(tab) end)
-    btn.TouchTap:Connect(function() self:_activate(tab) end)
+    btn.Activated:Connect(function() self:_activate(tab) end)
+    -- TouchTap replaced by Activated above
 
     local page = Instance.new("ScrollingFrame")
     page.Name = name .. "_Page"
