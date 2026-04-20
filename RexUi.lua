@@ -244,7 +244,10 @@ local function Notify(opts)
     xBtn.Text = "✕"
     xBtn.Parent = nf
 
+    local dismissed = false
     local function dismissNotif()
+        if dismissed then return end
+        dismissed = true
         tw(nf, {Position = UDim2.new(1, 12, 1, -(idx * gap + 10))}, 0.3)
         task.wait(0.35)
         pcall(function() nf:Destroy() end)
@@ -255,14 +258,11 @@ local function Notify(opts)
     xBtn.TouchTap:Connect(dismissNotif)
 
     tw(nf, {Position = UDim2.new(1, -(nW + 10), 1, -(idx * gap + 10))}, 0.4, Enum.EasingStyle.Back)
-    tw(prog, {Size = UDim2.new(0, 0, 0, 2)}, (opts.Duration or 4) - 0.4)
-
-    task.delay(opts.Duration or 4, function()
-        tw(nf, {Position = UDim2.new(1, 12, 1, -(idx * gap + 10))}, 0.3)
-        task.wait(0.35)
-        pcall(function() nf:Destroy() end)
-        notifCount = math.max(0, notifCount - 1)
+    task.delay(0.4, function()
+        tw(prog, {Size = UDim2.new(0, 0, 0, 2)}, (opts.Duration or 4) - 0.4)
     end)
+
+    task.delay(opts.Duration or 4, dismissNotif)
 end
 
 function RexUi:CreateWindow(config)
@@ -416,19 +416,6 @@ function RexUi:CreateWindow(config)
 
     local function doClose()
         drag = false
-        -- smooth: shrink to center + fade simultaneously
-        tw(main, {Size = UDim2.new(0, winW * 0.85, 0, winH * 0.85)}, 0.25,
-            Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-        tw(shadowImg, {ImageTransparency = 1}, 0.25)
-        task.wait(0.05)
-        tw(main, {BackgroundTransparency = 1}, 0.22)
-        -- fade every direct child
-        for _, ch in ipairs(main:GetChildren()) do
-            if ch:IsA("GuiObject") then
-                pcall(function() tw(ch, {BackgroundTransparency = 1}, 0.2) end)
-            end
-        end
-        task.wait(0.28)
         sg:Destroy()
     end
     closeBtn.MouseEnter:Connect(function()   tw(closeBtn, {TextTransparency = 0.35}, 0.1) end)
@@ -457,11 +444,13 @@ function RexUi:CreateWindow(config)
         if isMin then
             tw(main, {Size = UDim2.new(0, winW, 0, titleH)},
                 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            tw(shadowImg, {Size = UDim2.new(0, winW + sc(50), 0, titleH + sc(40))}, 0.3)
             minBtn.Text = "□"
             tw(minBtn, {TextColor3 = T.AccentSoft}, 0.15)
         else
             tw(main, {Size = UDim2.new(0, winW, 0, winH)},
                 0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+            tw(shadowImg, {Size = UDim2.new(0, winW + sc(50), 0, winH + sc(40))}, 0.4)
             minBtn.Text = "─"
             tw(minBtn, {TextColor3 = T.SubText}, 0.15)
         end
