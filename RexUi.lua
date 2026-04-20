@@ -369,25 +369,28 @@ function RexUi:CreateWindow(config)
         corner(ver, 4)
     end
 
+    -- Drag state declared before buttons so doClose/doMin can reset it
+    local drag, dragStart, startPos = false, nil, nil
+
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size = UDim2.new(0, btnSz, 0, btnSz)
     closeBtn.Position = UDim2.new(1, -sc(36), 0.5, -math.round(btnSz / 2))
-    closeBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+    closeBtn.BackgroundTransparency = 1
     closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = sf(13)
+    closeBtn.TextSize = sf(22)
     closeBtn.TextColor3 = T.White
-    closeBtn.Text = "✕"
+    closeBtn.Text = "❌"
     closeBtn.AutoButtonColor = false
     closeBtn.Parent = titleBar
-    corner(closeBtn, 6)
 
     local function doClose()
+        drag = false
         tw(main, {Size = UDim2.new(0, winW, 0, 0), BackgroundTransparency = 1}, 0.3, Enum.EasingStyle.Quad)
         task.wait(0.35)
         sg:Destroy()
     end
-    closeBtn.MouseEnter:Connect(function() tw(closeBtn, {BackgroundColor3 = Color3.fromRGB(220, 70, 70)}, 0.1) end)
-    closeBtn.MouseLeave:Connect(function() tw(closeBtn, {BackgroundColor3 = Color3.fromRGB(180, 50, 50)}, 0.1) end)
+    closeBtn.MouseEnter:Connect(function() tw(closeBtn, {TextTransparency = 0.35}, 0.1) end)
+    closeBtn.MouseLeave:Connect(function() tw(closeBtn, {TextTransparency = 0},    0.1) end)
     closeBtn.MouseButton1Click:Connect(doClose)
     closeBtn.TouchTap:Connect(doClose)
 
@@ -406,25 +409,36 @@ function RexUi:CreateWindow(config)
 
     local isMin = false
     local function doMin()
+        drag  = false   -- stop any active drag immediately
         isMin = not isMin
         if isMin then
             tw(main, {Size = UDim2.new(0, winW, 0, titleH)}, 0.3, Enum.EasingStyle.Quad)
             minBtn.Text = "□"
+            tw(minBtn, {TextColor3 = T.AccentSoft}, 0.15)
         else
             tw(main, {Size = UDim2.new(0, winW, 0, winH)}, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
             minBtn.Text = "─"
+            tw(minBtn, {TextColor3 = T.SubText}, 0.15)
         end
     end
     minBtn.MouseButton1Click:Connect(doMin)
     minBtn.TouchTap:Connect(doMin)
+    minBtn.MouseEnter:Connect(function() tw(minBtn, {BackgroundColor3 = T.TabHover}, 0.12) end)
+    minBtn.MouseLeave:Connect(function() tw(minBtn, {BackgroundColor3 = T.Section},  0.12) end)
 
-    local drag, dragStart, startPos = false, nil, nil
-    titleBar.InputBegan:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1
-        or inp.UserInputType == Enum.UserInputType.Touch then
-            drag = true
-            dragStart = inp.Position
-            startPos  = main.Position
+    -- Drag: use UserInputService so gpe=true (button clicks) won't trigger drag
+    UserInputService.InputBegan:Connect(function(inp, gpe)
+        -- gpe = true means a GuiButton (minBtn / closeBtn) consumed the click → skip drag
+        if gpe then return end
+        if inp.UserInputType ~= Enum.UserInputType.MouseButton1
+        and inp.UserInputType ~= Enum.UserInputType.Touch then return end
+        -- only start drag when cursor is over the titleBar
+        local mp  = UserInputService:GetMouseLocation()
+        local tp  = titleBar.AbsolutePosition
+        local ts  = titleBar.AbsoluteSize
+        if mp.X >= tp.X and mp.X <= tp.X + ts.X
+        and mp.Y >= tp.Y and mp.Y <= tp.Y + ts.Y then
+            drag = true; dragStart = inp.Position; startPos = main.Position
         end
     end)
     UserInputService.InputChanged:Connect(function(inp)
