@@ -24,7 +24,7 @@ local function rLog(msg)
     local entry = "[Rex] " .. msg
     table.insert(Rex.Log, entry)
     if #Rex.Log > 200 then table.remove(Rex.Log, 1) end
-    pcall(function() print(entry) end)
+    pcall(print, entry)
 end
 
 local function rSpawn(fn)
@@ -55,170 +55,346 @@ local function rGetHum()
     return c and c:FindFirstChildWhichIsA("Humanoid")
 end
 
-local function showSplash()
-    local vp = Camera.ViewportSize
-    local cx = vp.X / 2
-    local cy = vp.Y / 2
+local function showSplash(statusText)
+    pcall(function()
+        local vp = Camera.ViewportSize
+        local cx = vp.X / 2
+        local cy = vp.Y / 2
 
-    local bg = Drawing.new("Square")
-    bg.Size         = Vector2.new(400, 130)
-    bg.Position     = Vector2.new(cx - 200, cy - 65)
-    bg.Color        = Color3.fromRGB(8, 8, 14)
-    bg.Filled       = true
-    bg.Thickness    = 1
-    bg.Visible      = true
-    bg.Transparency = 0.1
+        local bg = Drawing.new("Square")
+        bg.Size         = Vector2.new(420, 140)
+        bg.Position     = Vector2.new(cx - 210, cy - 70)
+        bg.Color        = Color3.fromRGB(8, 8, 14)
+        bg.Filled       = true
+        bg.Thickness    = 1
+        bg.Visible      = true
+        bg.Transparency = 0.08
 
-    local border = Drawing.new("Square")
-    border.Size      = Vector2.new(400, 130)
-    border.Position  = Vector2.new(cx - 200, cy - 65)
-    border.Color     = Color3.fromRGB(80, 120, 255)
-    border.Filled    = false
-    border.Thickness = 2
-    border.Visible   = true
+        local border = Drawing.new("Square")
+        border.Size      = Vector2.new(420, 140)
+        border.Position  = Vector2.new(cx - 210, cy - 70)
+        border.Color     = Color3.fromRGB(80, 120, 255)
+        border.Filled    = false
+        border.Thickness = 2
+        border.Visible   = true
 
-    local accent = Drawing.new("Square")
-    accent.Size     = Vector2.new(400, 3)
-    accent.Position = Vector2.new(cx - 200, cy - 65)
-    accent.Color    = Color3.fromRGB(80, 120, 255)
-    accent.Filled   = true
-    accent.Thickness = 1
-    accent.Visible  = true
+        local accent = Drawing.new("Square")
+        accent.Size      = Vector2.new(420, 3)
+        accent.Position  = Vector2.new(cx - 210, cy - 70)
+        accent.Color     = Color3.fromRGB(80, 120, 255)
+        accent.Filled    = true
+        accent.Thickness = 1
+        accent.Visible   = true
 
-    local title = Drawing.new("Text")
-    title.Text         = "Start Rex"
-    title.Size         = 38
-    title.Font         = Drawing.Fonts.GothamBold
-    title.Color        = Color3.fromRGB(255, 255, 255)
-    title.Position     = Vector2.new(cx, cy - 18)
-    title.Center       = true
-    title.Outline      = true
-    title.OutlineColor = Color3.fromRGB(0, 0, 0)
-    title.Visible      = true
+        local title = Drawing.new("Text")
+        title.Text         = "Start Rex"
+        title.Size         = 38
+        title.Font         = Drawing.Fonts.GothamBold
+        title.Color        = Color3.fromRGB(255, 255, 255)
+        title.Position     = Vector2.new(cx, cy - 22)
+        title.Center       = true
+        title.Outline      = true
+        title.OutlineColor = Color3.fromRGB(0, 0, 0)
+        title.Visible      = true
 
-    local ver = Drawing.new("Text")
-    ver.Text         = "v" .. Rex.Version
-    ver.Size         = 18
-    ver.Font         = Drawing.Fonts.Gotham
-    ver.Color        = Color3.fromRGB(130, 160, 255)
-    ver.Position     = Vector2.new(cx, cy + 18)
-    ver.Center       = true
-    ver.Outline      = true
-    ver.OutlineColor = Color3.fromRGB(0, 0, 0)
-    ver.Visible      = true
+        local ver = Drawing.new("Text")
+        ver.Text         = "v" .. Rex.Version
+        ver.Size         = 18
+        ver.Font         = Drawing.Fonts.Gotham
+        ver.Color        = Color3.fromRGB(130, 160, 255)
+        ver.Position     = Vector2.new(cx, cy + 16)
+        ver.Center       = true
+        ver.Outline      = true
+        ver.OutlineColor = Color3.fromRGB(0, 0, 0)
+        ver.Visible      = true
 
-    local sub = Drawing.new("Text")
-    sub.Text     = "Protection System · Loading..."
-    sub.Size     = 13
-    sub.Font     = Drawing.Fonts.Gotham
-    sub.Color    = Color3.fromRGB(160, 160, 180)
-    sub.Position = Vector2.new(cx, cy + 44)
-    sub.Center   = true
-    sub.Outline  = false
-    sub.Visible  = true
+        local sub = Drawing.new("Text")
+        sub.Text     = statusText or "Initializing..."
+        sub.Size     = 13
+        sub.Font     = Drawing.Fonts.Gotham
+        sub.Color    = Color3.fromRGB(160, 160, 180)
+        sub.Position = Vector2.new(cx, cy + 46)
+        sub.Center   = true
+        sub.Visible  = true
 
-    task.delay(3.5, function()
-        for _, d in ipairs({ bg, border, accent, title, ver, sub }) do
-            pcall(function() d:Remove() end)
+        task.delay(4.0, function()
+            for _, d in ipairs({ bg, border, accent, title, ver, sub }) do
+                pcall(function() d:Remove() end)
+            end
+        end)
+    end)
+end
+
+showSplash("Scanning for anti-cheat...")
+
+local AC_SCRIPT_PATTERNS = {
+    "anticheat","anti_cheat","detect","watchdog","scanner",
+    "monitor","cheatcheck","speedcheck","flycheck","kickcheck",
+    "bancheck","verify","integrity","exploit_detect",
+}
+
+local AC_REMOTE_PATTERNS = {
+    "detect","anticheat","ac_","cheatcheck","speedcheck","flycheck",
+    "teleportcheck","flagplayer","reportplayer","banplayer","kickplayer",
+    "punishment","violation","exploit","hack","cheat","monitor",
+    "watchdog","scanner","verify","validate","integrity",
+}
+
+local WHITELIST_REMOTES = {
+    claimreward=true, collectreward=true, yenreward=true, eventreward=true,
+    likereward=true, afkreward=true, spinreward=true, dailyreward=true,
+    freereward=true, collect=true, claim=true, purchase=true,
+    buy=true, shop=true, store=true, inventory=true, equip=true,
+    open=true, quest=true,
+}
+
+local function matchesAC(name, patterns)
+    local nl = name:lower()
+    for _, p in ipairs(patterns) do
+        if nl:find(p) then return true end
+    end
+    return false
+end
+
+local function isSuspiciousRemote(name)
+    return matchesAC(name, AC_REMOTE_PATTERNS)
+end
+
+local function isWhitelisted(name)
+    local nl = name:lower()
+    for w in pairs(WHITELIST_REMOTES) do
+        if nl:find(w) then return true end
+    end
+    return false
+end
+
+-- ════════════════════════════════════════
+--  PRELOADER — убивает AC ДО хуков
+-- ════════════════════════════════════════
+
+local RexPreload = {}
+
+function RexPreload:KillACScripts()
+    local killed = 0
+    local targets = {
+        workspace, LocalPlayer, LocalPlayer.PlayerGui,
+        CoreGui, ReplicatedStorage, StarterGui,
+    }
+    for _, root in ipairs(targets) do
+        pcall(function()
+            for _, obj in ipairs(root:GetDescendants()) do
+                if obj:IsA("LocalScript") or obj:IsA("Script") or obj:IsA("ModuleScript") then
+                    if matchesAC(obj.Name, AC_SCRIPT_PATTERNS) then
+                        pcall(function()
+                            obj.Disabled = true
+                            killed += 1
+                            rLog("Preload: Killed → " .. obj.Name)
+                        end)
+                    end
+                end
+            end
+        end)
+    end
+    return killed
+end
+
+function RexPreload:DisconnectACRemotes()
+    local cut = 0
+    local roots = { ReplicatedStorage, workspace, LocalPlayer, LocalPlayer.PlayerGui }
+    for _, root in ipairs(roots) do
+        pcall(function()
+            for _, obj in ipairs(root:GetDescendants()) do
+                if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                    if isSuspiciousRemote(obj.Name) then
+                        pcall(function()
+                            if getconnections then
+                                local sig = pcall(function() return obj.OnClientEvent end) and obj.OnClientEvent
+                                    or pcall(function() return obj.OnClientInvoke end) and obj.OnClientInvoke
+                                if sig then
+                                    for _, conn in ipairs(getconnections(sig)) do
+                                        pcall(function() conn:Disable() end)
+                                        cut += 1
+                                    end
+                                end
+                            end
+                            rLog("Preload: Cut remote → " .. obj.Name)
+                        end)
+                    end
+                end
+            end
+        end)
+    end
+    return cut
+end
+
+function RexPreload:SpoofIdentityNow()
+    pcall(function() set_thread_identity(7) end)
+    pcall(function() setidentity(7) end)
+end
+
+function RexPreload:ClearTracesNow()
+    pcall(function()
+        local names = {
+            "SYNAPSE_RUNNING","KRNL_LOADED","FLUXUS","SCRIPT_HUB","EXECUTOR",
+            "COCO_Z","OXYGEN_U","EVON","ARCEUS_X","WAVE","HYDROGEN","DELTA","SOLARA","SELIOX",
+        }
+        local G = getfenv(0)
+        for _, name in ipairs(names) do
+            if G[name] ~= nil then pcall(function() G[name] = nil end) end
         end
     end)
 end
 
-pcall(showSplash)
+function RexPreload:Run()
+    RexPreload:SpoofIdentityNow()
+    RexPreload:ClearTracesNow()
+    if not game:IsLoaded() then game.Loaded:Wait() end
+    task.wait(0.3)
+    local killed = RexPreload:KillACScripts()
+    local cut    = RexPreload:DisconnectACRemotes()
+    rLog(("Preload: %d scripts killed, %d remotes cut"):format(killed, cut))
+    task.wait(0.2)
+end
 
-local RexAntiKick = {}
-RexAntiKick._hooked = false
+RexPreload:Run()
 
-function RexAntiKick:HookNamecall()
-    if RexAntiKick._hooked then return end
-    RexAntiKick._hooked = true
-    pcall(function()
-        local mt = getrawmetatable(game)
-        setreadonly(mt, false)
-        local oldNamecall = mt.__namecall
-        mt.__namecall = newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            local args   = {...}
+-- ════════════════════════════════════════
+--  ЕДИНЫЙ ХУКЕР NAMECALL
+--  hookmetamethod (stealth) + fallback
+-- ════════════════════════════════════════
 
-            if method == "Kick" then
-                rLog("AntiKick: Blocked :Kick() on " .. tostring(self))
+local RexHook = {}
+RexHook._installed = false
+
+local KICK_METHODS = { Kick=true }
+local TELEPORT_METHODS = {
+    Teleport=true, TeleportAsync=true,
+    TeleportToPlaceInstance=true, TeleportToPrivateServer=true,
+}
+
+local function buildHandler(oldFn)
+    return newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args   = {...}
+
+        if KICK_METHODS[method] then
+            rLog("AntiKick: Blocked :" .. method .. "()")
+            return
+        end
+
+        if TELEPORT_METHODS[method] and self == TeleportService then
+            local pid = args[1]
+            if pid and pid ~= game.PlaceId then
+                rLog("AntiKick: Blocked teleport → " .. tostring(pid))
                 return
             end
+        end
 
-            if (method == "TeleportToPlaceInstance" or method == "Teleport"
-                or method == "TeleportAsync" or method == "TeleportToPrivateServer") then
-                if self == TeleportService then
-                    local pid = args[1]
-                    if pid and pid ~= game.PlaceId then
-                        rLog("AntiKick: Blocked teleport kick → " .. tostring(pid))
-                        return
-                    end
+        if method == "Disconnect" then
+            local s = tostring(self):lower()
+            if s:find("network") or self == NetworkClient then
+                rLog("AntiKick: Blocked NetworkClient:Disconnect()")
+                return
+            end
+        end
+
+        if method == "FireServer" or method == "InvokeServer"
+        or method == "FireClient" or method == "InvokeClient" then
+            local ok, isRem = pcall(function()
+                return self:IsA("RemoteEvent") or self:IsA("RemoteFunction")
+            end)
+            if ok and isRem then
+                local n = self.Name
+                if isSuspiciousRemote(n) and not isWhitelisted(n) then
+                    rLog("AntiAC: Blocked remote: " .. n)
+                    return nil
                 end
             end
+        end
 
-            if method == "Disconnect" then
-                if self == NetworkClient or tostring(self):lower():find("network") then
-                    rLog("AntiKick: Blocked network disconnect")
-                    return
-                end
-            end
-
-            return oldNamecall(self, ...)
-        end)
-        setreadonly(mt, true)
+        if oldFn then return oldFn(self, ...) end
     end)
 end
 
-function RexAntiKick:HookHealthZero()
+function RexHook:Install()
+    if RexHook._installed then return end
+    RexHook._installed = true
+
+    local usedStealth = false
+
+    pcall(function()
+        if hookmetamethod then
+            hookmetamethod(game, "__namecall", buildHandler(nil))
+            usedStealth = true
+            rLog("Hook: hookmetamethod (stealth) installed")
+        end
+    end)
+
+    if not usedStealth then
+        pcall(function()
+            local mt = getrawmetatable(game)
+            setreadonly(mt, false)
+            local old = mt.__namecall
+            mt.__namecall = buildHandler(old)
+            setreadonly(mt, true)
+            rLog("Hook: fallback namecall installed")
+        end)
+    end
+end
+
+function RexHook:Reinstall()
+    RexHook._installed = false
+    RexHook:Install()
+end
+
+-- ════════════════════════════════════════
+--  ANTI-KICK
+-- ════════════════════════════════════════
+
+local RexAntiKick = {}
+
+function RexAntiKick:Init()
+    RexHook:Install()
+
     rSpawn(function()
         while Rex.Active do
             task.wait(0.05)
             local hum = rGetHum()
-            if hum then
-                if hum.Health <= 0 and hum.MaxHealth > 0 then
-                    pcall(function()
-                        hum.Health = hum.MaxHealth
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end)
-                    rLog("AntiKick: Prevented health-zero kick")
-                end
+            if hum and hum.Health <= 0 and hum.MaxHealth > 0 then
+                pcall(function()
+                    hum.Health = hum.MaxHealth
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end)
+                rLog("AntiKick: Restored health-zero kick")
             end
         end
     end)
-end
 
-function RexAntiKick:HookErrors()
     pcall(function()
-        ScriptContext.Error:Connect(function(msg, trace, script)
+        ScriptContext.Error:Connect(function(msg)
             if msg then
                 local ml = msg:lower()
                 if ml:find("kick") or ml:find("ban") or ml:find("cheat")
                 or ml:find("exploit") or ml:find("violation") then
-                    rLog("AntiKick: Suppressed crash kick: " .. tostring(msg):sub(1, 60))
+                    rLog("AntiKick: Suppressed error kick")
                     return false
                 end
             end
         end)
     end)
-end
 
-function RexAntiKick:HookCharacterRespawn()
-    LocalPlayer.CharacterAdded:Connect(function(char)
+    LocalPlayer.CharacterAdded:Connect(function()
         task.wait(0.3)
-        rLog("AntiKick: Character respawned — re-applying hooks")
-        RexAntiKick._hooked = false
-        task.wait(0.1)
-        RexAntiKick:HookNamecall()
+        rLog("AntiKick: Respawn — re-hooking")
+        RexHook:Reinstall()
     end)
-end
 
-function RexAntiKick:Init()
-    RexAntiKick:HookNamecall()
-    RexAntiKick:HookHealthZero()
-    RexAntiKick:HookErrors()
-    RexAntiKick:HookCharacterRespawn()
     rLog("AntiKick: Initialized")
 end
+
+-- ════════════════════════════════════════
+--  ANTI-BAN
+-- ════════════════════════════════════════
 
 local RexAntiBan = {}
 
@@ -227,55 +403,43 @@ function RexAntiBan:SpoofMovement()
     if not root then return end
     pcall(function()
         local offsets = {
-            Vector3.new( 0.03, 0,  0.00),
-            Vector3.new(-0.03, 0,  0.00),
-            Vector3.new( 0.00, 0,  0.03),
-            Vector3.new( 0.00, 0, -0.03),
-            Vector3.new( 0.02, 0,  0.02),
-            Vector3.new(-0.02, 0, -0.02),
-            Vector3.new( 0.01, 0, -0.01),
-            Vector3.new( 0.00, 0,  0.00),
+            Vector3.new( 0.03, 0,  0.00), Vector3.new(-0.03, 0,  0.00),
+            Vector3.new( 0.00, 0,  0.03), Vector3.new( 0.00, 0, -0.03),
+            Vector3.new( 0.02, 0,  0.02), Vector3.new(-0.02, 0, -0.02),
+            Vector3.new( 0.01, 0, -0.01), Vector3.new( 0.00, 0,  0.00),
         }
-        local pick = offsets[rRandInt(1, #offsets)]
-        root.CFrame = root.CFrame + pick
+        root.CFrame = root.CFrame + offsets[rRandInt(1, #offsets)]
     end)
 end
 
 function RexAntiBan:SpoofCamera()
     pcall(function()
         if not Camera then return end
-        local yaw   = rRand(-0.0008, 0.0008)
-        local pitch = rRand(-0.0003, 0.0003)
-        Camera.CFrame = Camera.CFrame * CFrame.Angles(pitch, yaw, 0)
+        Camera.CFrame = Camera.CFrame * CFrame.Angles(rRand(-0.0003,0.0003), rRand(-0.0008,0.0008), 0)
     end)
 end
 
 function RexAntiBan:SpoofHeartbeat()
     pcall(function()
-        VirtualUser:Button2Down(Vector2.zero, workspace.CurrentCamera.CFrame)
+        VirtualUser:Button2Down(Vector2.zero, Camera.CFrame)
         task.wait(rRand(0.04, 0.12))
-        VirtualUser:Button2Up(Vector2.zero, workspace.CurrentCamera.CFrame)
+        VirtualUser:Button2Up(Vector2.zero, Camera.CFrame)
     end)
 end
 
 function RexAntiBan:SpoofMouseMove()
     pcall(function()
-        VirtualUser:MoveMouse(Vector2.new(rRandInt(-4, 4), rRandInt(-4, 4)))
+        VirtualUser:MoveMouse(Vector2.new(rRandInt(-4,4), rRandInt(-4,4)))
     end)
 end
 
-function RexAntiBan:SpoofClickActivity()
+function RexAntiBan:SpoofClick()
     pcall(function()
-        VirtualUser:Button1Down(Vector2.new(rRandInt(100, 400), rRandInt(100, 400)), workspace.CurrentCamera.CFrame)
-        task.wait(rRand(0.02, 0.06))
-        VirtualUser:Button1Up(Vector2.new(rRandInt(100, 400), rRandInt(100, 400)), workspace.CurrentCamera.CFrame)
+        local p = Vector2.new(rRandInt(200,600), rRandInt(200,500))
+        VirtualUser:Button1Down(p, Camera.CFrame)
+        task.wait(rRand(0.02, 0.05))
+        VirtualUser:Button1Up(p, Camera.CFrame)
     end)
-end
-
-function RexAntiBan:RandomTiming()
-    local base   = rRand(0.15, 0.50)
-    local jitter = rRand(0, 0.20) * (math.random() > 0.5 and 1 or -1)
-    return math.max(0.04, base + jitter)
 end
 
 function RexAntiBan:Init()
@@ -287,12 +451,12 @@ function RexAntiBan:Init()
             if cycle % 3  == 0 then RexAntiBan:SpoofCamera() end
             if cycle % 6  == 0 then RexAntiBan:SpoofMouseMove() end
             if cycle % 4  == 0 then RexAntiBan:SpoofHeartbeat() end
-            if cycle % 15 == 0 then RexAntiBan:SpoofClickActivity() end
-            if cycle % rRandInt(45, 65) == 0 then
+            if cycle % 15 == 0 then RexAntiBan:SpoofClick() end
+            if cycle % rRandInt(45,65) == 0 then
                 task.wait(rRand(2.0, 6.0))
                 cycle = 0
             end
-            task.wait(RexAntiBan:RandomTiming())
+            task.wait(math.max(0.04, rRand(0.15,0.50) + rRand(0,0.20) * (math.random() > 0.5 and 1 or -1)))
         end
     end)
 
@@ -308,59 +472,11 @@ function RexAntiBan:Init()
     rLog("AntiBan: Initialized")
 end
 
+-- ════════════════════════════════════════
+--  ANTI-AC
+-- ════════════════════════════════════════
+
 local RexAntiAC = {}
-
-RexAntiAC.Whitelist = {
-    "claimreward","collectreward","yenreward","eventreward","likereward",
-    "afkreward","spinreward","dailyreward","freereward","collect","claim",
-    "purchase","buy","shop","store","inventory","equip","open","quest",
-}
-
-RexAntiAC.Suspicious = {
-    "detect","anticheat","anti_cheat","ac_","cheatcheck","speedcheck",
-    "flycheck","teleportcheck","flagplayer","reportplayer","banplayer",
-    "kickplayer","punishment","violation","exploit","hack","cheat",
-    "monitor","watchdog","scanner","verify","validate","integrity",
-}
-
-function RexAntiAC:IsSuspicious(name)
-    local nl = name:lower()
-    for _, pat in ipairs(RexAntiAC.Suspicious) do
-        if nl:find(pat) then return true end
-    end
-    return false
-end
-
-function RexAntiAC:IsWhitelisted(name)
-    local nl = name:lower()
-    for _, w in ipairs(RexAntiAC.Whitelist) do
-        if nl:find(w) then return true end
-    end
-    return false
-end
-
-function RexAntiAC:BlockRemotes()
-    pcall(function()
-        local mt = getrawmetatable(game)
-        setreadonly(mt, false)
-        local oldNamecall = mt.__namecall
-        mt.__namecall = newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            if method == "FireServer" or method == "InvokeServer"
-            or method == "FireClient" or method == "InvokeClient" then
-                if pcall(function() return self:IsA("RemoteEvent") or self:IsA("RemoteFunction") end) then
-                    local name = self.Name
-                    if RexAntiAC:IsSuspicious(name) and not RexAntiAC:IsWhitelisted(name) then
-                        rLog("AntiAC: Blocked remote: " .. name)
-                        return nil
-                    end
-                end
-            end
-            return oldNamecall(self, ...)
-        end)
-        setreadonly(mt, true)
-    end)
-end
 
 function RexAntiAC:CleanPlayerFlags()
     rSpawn(function()
@@ -433,11 +549,9 @@ function RexAntiAC:MonitorACScripts()
             pcall(function()
                 for _, obj in ipairs(LocalPlayer:GetDescendants()) do
                     if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
-                        local nl = obj.Name:lower()
-                        if nl:find("anticheat") or nl:find("detect") or nl:find("check")
-                        or nl:find("monitor") or nl:find("watchdog") then
+                        if matchesAC(obj.Name, AC_SCRIPT_PATTERNS) then
                             pcall(function() obj.Disabled = true end)
-                            rLog("AntiAC: Disabled AC script: " .. obj.Name)
+                            rLog("AntiAC: Disabled: " .. obj.Name)
                         end
                     end
                 end
@@ -447,7 +561,6 @@ function RexAntiAC:MonitorACScripts()
 end
 
 function RexAntiAC:Init()
-    RexAntiAC:BlockRemotes()
     RexAntiAC:CleanPlayerFlags()
     RexAntiAC:SpoofHumanoidState()
     RexAntiAC:SpoofWalkSpeed()
@@ -455,29 +568,26 @@ function RexAntiAC:Init()
     rLog("AntiAC: Initialized")
 end
 
+-- ════════════════════════════════════════
+--  ANTI-DETECT
+-- ════════════════════════════════════════
+
 local RexAntiDetect = {}
 
 function RexAntiDetect:SpoofIdentity()
-    pcall(function()
-        local ids = {4, 5, 6, 7}
-        set_thread_identity(ids[rRandInt(1, #ids)])
-    end)
-    pcall(function()
-        setidentity(rRandInt(4, 7))
-    end)
+    pcall(function() set_thread_identity({4,5,6,7}[rRandInt(1,4)]) end)
+    pcall(function() setidentity(rRandInt(4,7)) end)
 end
 
 function RexAntiDetect:ClearTraces()
     pcall(function()
         local names = {
-            "SYNAPSE_RUNNING","KRNL_LOADED","FLUXUS","SCRIPT_HUB",
-            "EXECUTOR","COCO_Z","OXYGEN_U","EVON","ARCEUS_X",
+            "SYNAPSE_RUNNING","KRNL_LOADED","FLUXUS","SCRIPT_HUB","EXECUTOR",
+            "COCO_Z","OXYGEN_U","EVON","ARCEUS_X","WAVE","HYDROGEN","DELTA","SOLARA","SELIOX",
         }
         local G = getfenv(0)
         for _, name in ipairs(names) do
-            if G[name] ~= nil then
-                pcall(function() G[name] = nil end)
-            end
+            if G[name] ~= nil then pcall(function() G[name] = nil end) end
         end
     end)
 end
@@ -485,6 +595,7 @@ end
 function RexAntiDetect:SpoofIndex()
     pcall(function()
         local mt = getrawmetatable(game)
+        if not mt then return end
         setreadonly(mt, false)
         local oldIndex = mt.__index
         mt.__index = newcclosure(function(self, key)
@@ -494,9 +605,7 @@ function RexAntiDetect:SpoofIndex()
                     return ok and val or nil
                 end
             end
-            if type(oldIndex) == "function" then
-                return oldIndex(self, key)
-            end
+            if type(oldIndex) == "function" then return oldIndex(self, key) end
             return rawget(self, key)
         end)
         setreadonly(mt, true)
@@ -509,13 +618,17 @@ function RexAntiDetect:Init()
     RexAntiDetect:SpoofIndex()
     rSpawn(function()
         while Rex.Active do
-            task.wait(rRand(20, 40))
+            task.wait(rRand(18, 35))
             RexAntiDetect:SpoofIdentity()
             RexAntiDetect:ClearTraces()
         end
     end)
     rLog("AntiDetect: Initialized")
 end
+
+-- ════════════════════════════════════════
+--  GUARDIAN
+-- ════════════════════════════════════════
 
 local RexGuardian = {}
 RexGuardian.Watchlist = {}
@@ -540,6 +653,10 @@ function RexGuardian:Init()
     rLog("Guardian: Watching " .. #RexGuardian.Watchlist .. " modules")
 end
 
+-- ════════════════════════════════════════
+--  RAYFIELD UI
+-- ════════════════════════════════════════
+
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Window = Rayfield:CreateWindow({
@@ -556,14 +673,12 @@ local statusLabel = nil
 
 local function refreshLog()
     if logLabel then
-        local last = Rex.Log[#Rex.Log] or "No events yet."
-        logLabel:Set("Last: " .. last)
+        logLabel:Set("Last: " .. (Rex.Log[#Rex.Log] or "No events yet."))
     end
 end
 
 local HomeTab = Window:CreateTab("🛡 Rex", 4483362458)
 HomeTab:CreateSection("Status")
-
 statusLabel = HomeTab:CreateLabel("Status: ⭕ Inactive")
 logLabel    = HomeTab:CreateLabel("Last: —")
 
@@ -579,10 +694,11 @@ HomeTab:CreateToggle({
             RexAntiAC:Init()
             RexAntiDetect:Init()
 
-            RexGuardian:Watch("AntiKick",   function() RexAntiKick:HookNamecall() end)
+            RexGuardian:Watch("Hook",       function() RexHook:Install() end)
             RexGuardian:Watch("AntiBan",    function() RexAntiBan:SpoofHeartbeat() end)
             RexGuardian:Watch("AntiDetect", function() RexAntiDetect:ClearTraces() end)
             RexGuardian:Watch("AntiAC",     function() RexAntiAC:CleanPlayerFlags() end)
+            RexGuardian:Watch("Preload",    function() RexPreload:KillACScripts() end)
             RexGuardian:Init()
 
             if statusLabel then statusLabel:Set("Status: ✅ Active — All modules running") end
@@ -604,7 +720,7 @@ HomeTab:CreateToggle({
             if statusLabel then statusLabel:Set("Status: ⭕ Inactive") end
             for _, t in ipairs(Rex.Threads) do pcall(function() task.cancel(t) end) end
             Rex.Threads = {}
-            RexAntiKick._hooked = false
+            RexHook._installed = false
             Rayfield:Notify({
                 Title    = "🛡 Rex Stopped",
                 Content  = "All modules disabled.",
@@ -618,8 +734,8 @@ HomeTab:CreateButton({
     Name     = "📋 Last 5 Events",
     Callback = function()
         local lines = {}
-        local start = math.max(1, #Rex.Log - 4)
-        for i = start, #Rex.Log do table.insert(lines, Rex.Log[i]) end
+        local s = math.max(1, #Rex.Log - 4)
+        for i = s, #Rex.Log do table.insert(lines, Rex.Log[i]) end
         Rayfield:Notify({
             Title    = "📋 Rex Log",
             Content  = #lines > 0 and table.concat(lines, "\n") or "No events yet.",
@@ -637,55 +753,72 @@ HomeTab:CreateButton({
     end,
 })
 
+HomeTab:CreateButton({
+    Name     = "🔄 Re-scan AC Scripts",
+    Callback = function()
+        local k = RexPreload:KillACScripts()
+        local c = RexPreload:DisconnectACRemotes()
+        Rayfield:Notify({
+            Title   = "🔄 Re-scan Done",
+            Content = k .. " scripts killed, " .. c .. " remotes cut",
+            Duration = 4,
+        })
+    end,
+})
+
 local AntiKickTab = Window:CreateTab("🦵 Anti-Kick", 4483362458)
 AntiKickTab:CreateSection("Methods")
-AntiKickTab:CreateLabel("⚔ Player:Kick() namecall hook (all callers)")
+AntiKickTab:CreateLabel("⚔ hookmetamethod stealth (Error 267 fix)")
+AntiKickTab:CreateLabel("⚔ Player:Kick() blocked on any object")
 AntiKickTab:CreateLabel("⚔ TeleportService kick blocker")
-AntiKickTab:CreateLabel("⚔ Network disconnect hook")
-AntiKickTab:CreateLabel("⚔ Health-zero kick prevention (0.05s loop)")
-AntiKickTab:CreateLabel("⚔ ScriptContext error kick suppression")
-AntiKickTab:CreateLabel("⚔ Auto re-hook on character respawn")
+AntiKickTab:CreateLabel("⚔ NetworkClient disconnect blocked")
+AntiKickTab:CreateLabel("⚔ Health-zero prevention (0.05s loop)")
+AntiKickTab:CreateLabel("⚔ ScriptContext error suppression")
+AntiKickTab:CreateLabel("⚔ Auto re-hook on respawn")
 
 local AntiBanTab = Window:CreateTab("🚫 Anti-Ban", 4483362458)
 AntiBanTab:CreateSection("Methods")
 AntiBanTab:CreateLabel("⚔ Micro-movements every cycle")
-AntiBanTab:CreateLabel("⚔ Camera angle spoof every 3 cycles")
+AntiBanTab:CreateLabel("⚔ Camera spoof every 3 cycles")
 AntiBanTab:CreateLabel("⚔ Mouse spoof every 6 cycles")
-AntiBanTab:CreateLabel("⚔ VirtualUser heartbeat every 4 cycles")
-AntiBanTab:CreateLabel("⚔ Click activity spoof every 15 cycles")
+AntiBanTab:CreateLabel("⚔ Heartbeat every 4 cycles")
+AntiBanTab:CreateLabel("⚔ Click spoof every 15 cycles")
 AntiBanTab:CreateLabel("⚔ Long human pause every 45–65 cycles")
-AntiBanTab:CreateLabel("⚔ Independent idle heartbeat every ~60s")
+AntiBanTab:CreateLabel("⚔ Independent idle loop every ~60s")
 
 local AntiACTab = Window:CreateTab("🔒 Anti-AC", 4483362458)
 AntiACTab:CreateSection("Methods")
-AntiACTab:CreateLabel("⚔ Suspicious RemoteEvent/Function blocker")
-AntiACTab:CreateLabel("⚔ Player flag cleaner (BoolValue/IntValue)")
+AntiACTab:CreateLabel("⚔ Preload: kills AC scripts before hooks")
+AntiACTab:CreateLabel("⚔ Preload: cuts AC remote connections")
+AntiACTab:CreateLabel("⚔ Player flag cleaner loop")
 AntiACTab:CreateLabel("⚔ Humanoid state spoofing")
 AntiACTab:CreateLabel("⚔ WalkSpeed masking when idle")
-AntiACTab:CreateLabel("⚔ AC LocalScript disabler")
+AntiACTab:CreateLabel("⚔ AC LocalScript disabler loop")
 
 local AntiDetectTab = Window:CreateTab("👁 Anti-Detect", 4483362458)
 AntiDetectTab:CreateSection("Methods")
-AntiDetectTab:CreateLabel("⚔ Thread identity spoofing")
+AntiDetectTab:CreateLabel("⚔ Thread identity spoof (ID 7 on load)")
 AntiDetectTab:CreateLabel("⚔ Executor env variable cleaner")
 AntiDetectTab:CreateLabel("⚔ __index spoof for game properties")
-AntiDetectTab:CreateLabel("⚔ Re-spoofs every 20–40 seconds")
+AntiDetectTab:CreateLabel("⚔ Re-spoofs every 18–35 seconds")
 
 local GuardianTab = Window:CreateTab("👁‍🗨 Guardian", 4483362458)
 GuardianTab:CreateSection("Self-Repair")
 GuardianTab:CreateLabel("⚔ Monitors all modules every 4–8s")
-GuardianTab:CreateLabel("⚔ Auto-restarts any crashed module")
-GuardianTab:CreateLabel("⚔ Logs every restart to Rex Log")
+GuardianTab:CreateLabel("⚔ Restarts any crashed module auto")
+GuardianTab:CreateLabel("⚔ Runs Preload scan every cycle")
+GuardianTab:CreateLabel("⚔ All events logged to Rex Log")
 
 local MiscTab = Window:CreateTab("⚙️ Misc", 4483362458)
 MiscTab:CreateSection("Info")
 MiscTab:CreateLabel("Rex v" .. Rex.Version)
 MiscTab:CreateLabel("Anti-Kick · Anti-Ban · Anti-AC · Anti-Detect")
 MiscTab:CreateLabel("Guardian — Self-Repair Engine")
+MiscTab:CreateLabel("Preloader — AC Killer on connect")
 
 Rayfield:Notify({
     Title    = "🛡 Rex v" .. Rex.Version,
-    Content  = "Ready. Enable protection in the Rex tab.",
+    Content  = "Preload done. Enable protection in the Rex tab.",
     Duration = 5,
     Image    = 4483362458,
 })
