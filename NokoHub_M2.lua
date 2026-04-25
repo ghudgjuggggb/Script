@@ -12,8 +12,9 @@ local Mouse            = LocalPlayer:GetMouse()
 local IsMobile         = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 local Cfg = {
-    AlwaysHit        = false,
-    AlwaysHitPart    = "Head",
+    -- Shoot Murder / Gun Aimbot
+    ShootMurder      = false,
+    GunAimbot        = false,
 
     ESP              = false,
     ESPBoxes         = true,
@@ -35,11 +36,15 @@ local Cfg = {
     CoinESP          = false,
     CoinFarmDelay    = 0.1,
 
+    GunESP           = false,
+
     TpToMurderer     = false,
     TpToSheriff      = false,
 
     KillAura         = false,
     KillAuraRange    = 8,
+
+    FlingTimeout     = 2.5,
 
     InfiniteStamina  = false,
     AlwaysSprint     = false,
@@ -57,6 +62,10 @@ local Cfg = {
 
     FullBright       = false,
     FullBrightValue  = 2,
+
+    SecondsLife      = false,
+    TouchFling       = false,
+    NoclipPlayers    = false,
 
     AntiAFK          = false,
     FPSBoost         = false,
@@ -119,12 +128,14 @@ local BodyPartAliases = {
 }
 
 local Character, Humanoid, RootPart
-local Connections  = {}
-local ESPData      = {}
-local ChamData     = {}
-local RoleChamData = {}
-local FlyBG, FlyBV = nil, nil
-local CoinESPData  = {}
+local Connections   = {}
+local ESPData       = {}
+local ChamData      = {}
+local RoleChamData  = {}
+local FlyBG, FlyBV  = nil, nil
+local CoinESPData   = {}
+local GunESPData    = { highlight = nil, billboard = nil }
+local GunBotConn    = nil
 
 local function GetChar()
     Character = LocalPlayer.Character
@@ -187,6 +198,30 @@ local function GetMurderer()
     return nil
 end
 
+-- GetMurdererTarget — через RemoteFunction (из txt)
+local function GetMurdererTarget()
+    local remote = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
+    if not remote then return nil, false end
+    local ok, data = pcall(function() return remote:InvokeServer() end)
+    if not ok or type(data) ~= "table" then return nil, false end
+    for plrName, plrData in pairs(data) do
+        if plrData.Role == "Murderer" then
+            local player = Players:FindFirstChild(plrName)
+            if player then
+                if player == LocalPlayer then return nil, true end
+                local char = player.Character
+                if char then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if hrp then return hrp.Position, false end
+                    local head = char:FindFirstChild("Head")
+                    if head then return head.Position, false end
+                end
+            end
+        end
+    end
+    return nil, false
+end
+
 local function OnCharacterAdded(char)
     Character = char
     Humanoid  = char:WaitForChild("Humanoid")
@@ -197,6 +232,15 @@ local function OnCharacterAdded(char)
             Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
         end
     end)
+    -- Обновить GodMode при respawn
+    Disconnect("GodCon")
+    if Cfg.SecondsLife then
+        Connections["GodCon"] = Humanoid.HealthChanged:Connect(function()
+            if Cfg.SecondsLife and Humanoid.Health < Humanoid.MaxHealth then
+                Humanoid.Health = Humanoid.MaxHealth
+            end
+        end)
+    end
 end
 
 LocalPlayer.CharacterAdded:Connect(OnCharacterAdded)
@@ -248,6 +292,81 @@ local function GetFlyDir()
     return dir
 end
 
+-- ─── DoFling (адаптировано из SHubFling) ────────────────────────────────────
+local function DoFling(targetPlayer)
+    if not GetChar() then return end
+    local TCharacter = targetPlayer.Character
+    if not TCharacter then return end
+    local THumanoid = TCharacter:FindFirstChildOfClass("Humanoid")
+    local TRootPart = THumanoid and THumanoid.RootPart
+    local THead     = TCharacter:FindFirstChild("Head")
+    local Accessory = TCharacter:FindFirstChildOfClass("Accessory")
+    local Handle    = Accessory and Accessory:FindFirstChild("Handle")
+    local OldPos    = RootPart.CFrame
+
+    repeat task.wait()
+        Camera.CameraSubject = THead or Handle or THumanoid
+    until Camera.CameraSubject == THead or Handle or THumanoid
+
+    local function FPos(BasePart, Pos, Ang)
+        local targetCF = CFrame.new(BasePart.Position) * Pos * Ang
+        RootPart.CFrame = targetCF
+        Character:SetPrimaryPartCFrame(targetCF)
+        RootPart.Velocity    = Vector3.new(9e7, 9e8, 9e7)
+        RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+    end
+
+    local function SFBasePart(BasePart)
+        local start = tick()
+        local angle = 0
+        repeat
+            if RootPart and THumanoid then
+                angle = angle + 100
+                for _, offset in ipairs{
+                    CFrame.new(0,1.5,0),
+                    CFrame.new(0,-1.5,0),
+                    CFrame.new(2.25,1.5,-2.25),
+                    CFrame.new(-2.25,-1.5,2.25),
+                } do
+                    FPos(BasePart, offset + THumanoid.MoveDirection, CFrame.Angles(math.rad(angle), 0, 0))
+                    task.wait()
+                end
+            end
+        until BasePart.Velocity.Magnitude > 500 or tick() - start > Cfg.FlingTimeout
+    end
+
+    local BV = Instance.new("BodyVelocity")
+    BV.Name     = "NokoFlingVel"
+    BV.Velocity  = Vector3.new(9e8, 9e8, 9e8)
+    BV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    BV.Parent   = RootPart
+
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+    local target = TRootPart or THead or Handle
+    if target then SFBasePart(target) end
+    BV:Destroy()
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+
+    repeat task.wait()
+        Camera.CameraSubject = Humanoid
+    until Camera.CameraSubject == Humanoid
+
+    repeat
+        local cf = OldPos * CFrame.new(0, 0.5, 0)
+        RootPart.CFrame = cf
+        Character:SetPrimaryPartCFrame(cf)
+        Humanoid:ChangeState("GettingUp")
+        for _, part in ipairs(Character:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.Velocity    = Vector3.zero
+                part.RotVelocity = Vector3.zero
+            end
+        end
+        task.wait()
+    until (RootPart.Position - OldPos.p).Magnitude < 25
+end
+
+-- ─── ESP Utils ───────────────────────────────────────────────────────────────
 local ESPColor = {
     Box  = Color3.fromRGB(255, 60, 60),
     Name = Color3.fromRGB(255, 255, 255),
@@ -349,6 +468,47 @@ local function UpdateRoleChams()
                 end
             end
         end
+    end
+end
+
+-- ─── Gun Drop ESP ────────────────────────────────────────────────────────────
+local function UpdateGunESP()
+    local gun = workspace:FindFirstChild("GunDrop", true)
+    if not Cfg.GunESP then
+        if GunESPData.highlight then pcall(function() GunESPData.highlight:Destroy() end); GunESPData.highlight = nil end
+        if GunESPData.billboard then pcall(function() GunESPData.billboard:Destroy() end); GunESPData.billboard = nil end
+        return
+    end
+    if gun then
+        if not GunESPData.highlight or not GunESPData.highlight.Parent then
+            local hl = Instance.new("Highlight", gun)
+            hl.Name = "NokoGunHL"
+            hl.FillColor = Color3.new(1, 1, 0)
+            hl.OutlineColor = Color3.new(1, 1, 1)
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.FillTransparency = 0.4
+            hl.OutlineTransparency = 0.5
+            GunESPData.highlight = hl
+        end
+        if not GunESPData.billboard or not GunESPData.billboard.Parent then
+            local esp = Instance.new("BillboardGui", gun)
+            esp.Name = "NokoGunBB"
+            esp.Size = UDim2.new(5, 0, 5, 0)
+            esp.AlwaysOnTop = true
+            local lbl = Instance.new("TextLabel", esp)
+            lbl.Name = "GunLabel"
+            lbl.Size = UDim2.new(1, 0, 1, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.TextStrokeTransparency = 0
+            lbl.TextColor3 = Color3.fromRGB(255, 215, 0)
+            lbl.Font = Enum.Font.FredokaOne
+            lbl.TextSize = 16
+            lbl.Text = "🔫 Gun Drop"
+            GunESPData.billboard = esp
+        end
+    else
+        if GunESPData.highlight then pcall(function() GunESPData.highlight:Destroy() end); GunESPData.highlight = nil end
+        if GunESPData.billboard then pcall(function() GunESPData.billboard:Destroy() end); GunESPData.billboard = nil end
     end
 end
 
@@ -615,13 +775,13 @@ end
 local function OnPlayerAdded(plr)
     plr.CharacterAdded:Connect(function()
         task.wait(0.3)
-        if Cfg.ESP      then CreateESP(plr)      end
-        if Cfg.Chams    then CreateChams(plr)    end
+        if Cfg.ESP       then CreateESP(plr)       end
+        if Cfg.Chams     then CreateChams(plr)     end
         if Cfg.RoleChams then CreateRoleChams(plr) end
     end)
     if plr.Character then
-        if Cfg.ESP      then CreateESP(plr)      end
-        if Cfg.Chams    then CreateChams(plr)    end
+        if Cfg.ESP       then CreateESP(plr)       end
+        if Cfg.Chams     then CreateChams(plr)     end
         if Cfg.RoleChams then CreateRoleChams(plr) end
     end
 end
@@ -634,31 +794,8 @@ for _, plr in ipairs(Players:GetPlayers()) do
     if plr ~= LocalPlayer then OnPlayerAdded(plr) end
 end
 
-local function DoAlwaysHit()
-    if not Cfg.AlwaysHit then
-        if Camera.CameraType == Enum.CameraType.Scriptable then
-            pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
-        end
-        return
-    end
-    local murderer = GetMurderer()
-    if not murderer then
-        if Camera.CameraType == Enum.CameraType.Scriptable then
-            pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
-        end
-        return
-    end
-    local part = ResolvePart(murderer, Cfg.AlwaysHitPart)
-    if not part then return end
-    local _, vis = W2S(part.Position)
-    if not vis then return end
-    pcall(function() Camera.CameraType = Enum.CameraType.Scriptable end)
-    Camera.CFrame = CFrame.new(Camera.CFrame.Position, part.Position)
-end
-
+-- ─── RunService Loops ────────────────────────────────────────────────────────
 Connections["RenderStepped"] = RunService.RenderStepped:Connect(function(dt)
-    DoAlwaysHit()
-
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             if Cfg.ESP and not ESPData[plr] then CreateESP(plr) end
@@ -666,10 +803,10 @@ Connections["RenderStepped"] = RunService.RenderStepped:Connect(function(dt)
             if ChamData[plr] and plr.Character then ChamData[plr].Adornee = plr.Character end
         end
     end
-
     UpdateESP()
     UpdateRoleChams()
     UpdateCoinESP()
+    UpdateGunESP()
 end)
 
 Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
@@ -692,6 +829,27 @@ Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
     if Cfg.Noclip then
         for _, p in ipairs(Character:GetDescendants()) do
             if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+        end
+    end
+    -- Noclip Players (Anti-Fling)
+    if Cfg.NoclipPlayers then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                for _, v in ipairs(plr.Character:GetDescendants()) do
+                    if v:IsA("BasePart") and v.CanCollide then
+                        v.CanCollide = false
+                    end
+                end
+            end
+        end
+    end
+    -- Touch Fling
+    if Cfg.TouchFling then
+        local vel = RootPart.Velocity
+        RootPart.Velocity = vel * 9e8 + Vector3.new(0, 9e8, 0)
+        task.wait()
+        if RootPart and RootPart.Parent then
+            RootPart.Velocity = vel
         end
     end
     if Cfg.Fly then
@@ -725,11 +883,12 @@ Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
+-- ─── UI ──────────────────────────────────────────────────────────────────────
 local Window = Rayfield:CreateWindow({
     Name            = "Noko Hub  |  Murder Mystery 2",
     Icon            = 0,
     LoadingTitle    = "Noko Hub",
-    LoadingSubtitle = "Murder Mystery 2  |  v2.0.0  |  " .. (IsMobile and "📱 Mobile" or "🖥️ PC"),
+    LoadingSubtitle = "Murder Mystery 2  |  v2.1.0  |  " .. (IsMobile and "📱 Mobile" or "🖥️ PC"),
     Theme           = "Default",
     DisableRayfieldPrompts   = false,
     DisableBuildWarnings     = false,
@@ -744,6 +903,9 @@ local MoveTab   = Window:CreateTab("🏃 Movement", 4483362458)
 local VisualTab = Window:CreateTab("👁️ Visuals",  4483362458)
 local MiscTab   = Window:CreateTab("⚙️ Misc",     4483362458)
 
+-- ═══════════════════════════════════════════════════════════
+-- MM2 TAB
+-- ═══════════════════════════════════════════════════════════
 MM2Tab:CreateSection("🎭 Roles")
 MM2Tab:CreateToggle({
     Name = "Role ESP (🔪/🔫/😇)",
@@ -809,6 +971,65 @@ MM2Tab:CreateSlider({
     Callback = function(v) Cfg.KillAuraRange = v end,
 })
 
+MM2Tab:CreateSection("💥 Fling")
+MM2Tab:CreateSlider({
+    Name = "Fling Timeout",
+    Range = {0.5, 10}, Increment = 0.1, Suffix = "s",
+    CurrentValue = 2.5, Flag = "FlingTimeout",
+    Callback = function(v) Cfg.FlingTimeout = v end,
+})
+MM2Tab:CreateButton({
+    Name = "💥 Fling Murderer",
+    Callback = function()
+        if not GetChar() then return end
+        local m = GetPlayerByRole("Murderer")
+        if m then
+            task.spawn(function() DoFling(m) end)
+            Rayfield:Notify({ Title = "Fling", Content = "Flinging: " .. m.DisplayName, Duration = 2 })
+        else
+            Rayfield:Notify({ Title = "Fling", Content = "Murderer not found", Duration = 2 })
+        end
+    end,
+})
+MM2Tab:CreateButton({
+    Name = "💥 Fling Sheriff",
+    Callback = function()
+        if not GetChar() then return end
+        local s = GetPlayerByRole("Sheriff")
+        if s then
+            task.spawn(function() DoFling(s) end)
+            Rayfield:Notify({ Title = "Fling", Content = "Flinging: " .. s.DisplayName, Duration = 2 })
+        else
+            Rayfield:Notify({ Title = "Fling", Content = "Sheriff not found", Duration = 2 })
+        end
+    end,
+})
+local FlingTarget = nil
+local FlingPlayerList = {}
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then table.insert(FlingPlayerList, p.Name) end
+end
+MM2Tab:CreateDropdown({
+    Name = "Select Fling Target",
+    Options = FlingPlayerList,
+    CurrentOption = {}, MultipleOptions = false, Flag = "FlingTargetDrop",
+    Callback = function(v) FlingTarget = v[1] end,
+})
+MM2Tab:CreateButton({
+    Name = "💥 Fling Selected Player",
+    Callback = function()
+        if not GetChar() or not FlingTarget then
+            Rayfield:Notify({ Title = "Fling", Content = "No player selected", Duration = 2 })
+            return
+        end
+        local p = Players:FindFirstChild(FlingTarget)
+        if p and p ~= LocalPlayer then
+            task.spawn(function() DoFling(p) end)
+            Rayfield:Notify({ Title = "Fling", Content = "Flinging: " .. p.DisplayName, Duration = 2 })
+        end
+    end,
+})
+
 MM2Tab:CreateSection("🚀 Teleport")
 MM2Tab:CreateToggle({
     Name = "TP to Murderer (continuous)",
@@ -860,6 +1081,40 @@ MM2Tab:CreateButton({
         end
     end,
 })
+MM2Tab:CreateButton({
+    Name = "📍  TP to Map",
+    Callback = function()
+        if not GetChar() then return end
+        local map = workspace:FindFirstChild("CoinContainer", true)
+        if map and map.Parent then
+            local part = map:FindFirstChildWhichIsA("BasePart", true)
+                      or map.Parent:FindFirstChildWhichIsA("BasePart", true)
+            if part then
+                pcall(function() RootPart.CFrame = part.CFrame * CFrame.new(0, 2, 0) end)
+                Rayfield:Notify({ Title = "TP Map", Content = "Teleported to map", Duration = 2 })
+                return
+            end
+        end
+        Rayfield:Notify({ Title = "TP Map", Content = "Map not found", Duration = 2 })
+    end,
+})
+MM2Tab:CreateButton({
+    Name = "📍  TP to Lobby",
+    Callback = function()
+        if not GetChar() then return end
+        local lobby = workspace:FindFirstChild("Lobby", true)
+        if lobby and lobby.Parent then
+            local part = lobby:FindFirstChildWhichIsA("BasePart", true)
+                      or lobby.Parent:FindFirstChildWhichIsA("BasePart", true)
+            if part then
+                pcall(function() RootPart.CFrame = part.CFrame * CFrame.new(0, 2, 0) end)
+                Rayfield:Notify({ Title = "TP Lobby", Content = "Teleported to lobby", Duration = 2 })
+                return
+            end
+        end
+        Rayfield:Notify({ Title = "TP Lobby", Content = "Lobby not found", Duration = 2 })
+    end,
+})
 
 MM2Tab:CreateSection("🔫 Sheriff")
 MM2Tab:CreateToggle({
@@ -868,6 +1123,33 @@ MM2Tab:CreateToggle({
     Callback = function(v)
         Cfg.AutoPickupGun = v
         Rayfield:Notify({ Title = "Auto Pickup Gun", Content = v and "ON" or "OFF", Duration = 2 })
+    end,
+})
+MM2Tab:CreateButton({
+    Name = "🔫  Steal Gun (from Sheriff)",
+    Callback = function()
+        if not GetChar() then return end
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                if p.Character and p.Character:FindFirstChild("Gun") then
+                    p.Character:FindFirstChild("Gun").Parent = Character
+                    pcall(function() Humanoid:EquipTool(Character:FindFirstChild("Gun")) end)
+                    pcall(function() Humanoid:UnequipTools() end)
+                    Rayfield:Notify({ Title = "Steal Gun", Content = "Stolen from " .. p.Name, Duration = 2 })
+                    return
+                elseif p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Gun") then
+                    local bp = LocalPlayer:FindFirstChild("Backpack")
+                    if bp then
+                        p.Backpack:FindFirstChild("Gun").Parent = bp
+                        pcall(function() Humanoid:EquipTool(bp:FindFirstChild("Gun")) end)
+                        pcall(function() Humanoid:UnequipTools() end)
+                        Rayfield:Notify({ Title = "Steal Gun", Content = "Stolen from " .. p.Name, Duration = 2 })
+                        return
+                    end
+                end
+            end
+        end
+        Rayfield:Notify({ Title = "Steal Gun", Content = "No gun found", Duration = 2 })
     end,
 })
 
@@ -889,29 +1171,105 @@ MM2Tab:CreateToggle({
     end,
 })
 
-CombatTab:CreateSection("Always Hit — Murderer Only")
+-- ═══════════════════════════════════════════════════════════
+-- COMBAT TAB
+-- ═══════════════════════════════════════════════════════════
+CombatTab:CreateSection("🔫 Shoot Murder")
 CombatTab:CreateToggle({
-    Name = "Always Hit",
-    CurrentValue = false, Flag = "AlwaysHit",
+    Name = "Shoot Murder Button",
+    CurrentValue = false, Flag = "ShootMurder",
     Callback = function(v)
-        Cfg.AlwaysHit = v
-        if not v then
-            pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
+        Cfg.ShootMurder = v
+        local guip = (gethui and gethui())
+            or (game:FindService("CoreGui") and game:FindService("CoreGui"):FindFirstChild("RobloxGui"))
+            or game:FindService("CoreGui")
+            or LocalPlayer:FindFirstChild("PlayerGui")
+        if v then
+            if guip and not guip:FindFirstChild("NokoGunW") then
+                local GunGui = Instance.new("ScreenGui", guip)
+                GunGui.Name = "NokoGunW"
+                GunGui.ResetOnSpawn = false
+                local btn = Instance.new("TextButton", GunGui)
+                btn.Name = "ShootBtn"
+                btn.Draggable = true
+                btn.Position = UDim2.new(0.5, 187, 0.5, -176)
+                btn.Size = UDim2.new(0, 70, 0, 50)
+                btn.BackgroundTransparency = 0.15
+                btn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+                btn.Text = "🔫\nShoot\nMurder"
+                btn.TextColor3 = Color3.new(1, 1, 1)
+                btn.TextSize = 11
+                btn.TextWrapped = true
+                btn.Active = true
+                btn.AnchorPoint = Vector2.new(0.5, 0.5)
+                local corner = Instance.new("UICorner", btn)
+                corner.CornerRadius = UDim.new(0, 8)
+                local stroke = Instance.new("UIStroke", btn)
+                stroke.Color = Color3.fromRGB(255, 80, 80)
+                stroke.Thickness = 2
+                stroke.Transparency = 0.3
+                btn.MouseButton1Click:Connect(function()
+                    if not Character then return end
+                    if Character:FindFirstChild("Gun") then
+                        pcall(function()
+                            local targetPos = GetMurdererTarget()
+                            if targetPos then
+                                Character.Gun.KnifeLocal.CreateBeam.RemoteFunction:InvokeServer(1, targetPos, "AH2")
+                            end
+                        end)
+                    else
+                        Rayfield:Notify({ Title = "Shoot Murder", Content = "No gun in hand!", Duration = 2 })
+                    end
+                end)
+            end
+        else
+            if guip and guip:FindFirstChild("NokoGunW") then
+                guip:FindFirstChild("NokoGunW"):Destroy()
+            end
         end
-        Rayfield:Notify({
-            Title   = "Always Hit",
-            Content = v and "ON — bullet locked to Murderer" or "OFF",
-            Duration = 3
-        })
+        Rayfield:Notify({ Title = "Shoot Murder", Content = v and "ON — кнопка появилась" or "OFF", Duration = 2 })
     end,
 })
-CombatTab:CreateDropdown({
-    Name = "Target Part",
-    Options = {"Head","UpperTorso","LowerTorso","Left Arm","Right Arm","Left Leg","Right Leg","Root"},
-    CurrentOption = {"Head"}, MultipleOptions = false, Flag = "AlwaysHitPart",
-    Callback = function(v) Cfg.AlwaysHitPart = v[1] end,
+
+CombatTab:CreateSection("🎯 Gun Aimbot")
+CombatTab:CreateToggle({
+    Name = "Gun Aimbot (Sheriff)",
+    CurrentValue = false, Flag = "GunAimbot",
+    Callback = function(v)
+        Cfg.GunAimbot = v
+        if GunBotConn then GunBotConn:Disconnect(); GunBotConn = nil end
+        if v then
+            task.spawn(function()
+                local function SetupBot()
+                    if not GetChar() then return end
+                    local gun = Character:FindFirstChild("Gun")
+                    if not gun then return end
+                    local knifeLocal = gun:FindFirstChild("KnifeLocal")
+                    local cb     = knifeLocal and knifeLocal:FindFirstChild("CreateBeam")
+                    local remote = cb and cb:FindFirstChild("RemoteFunction")
+                    if not remote then return end
+                    if GunBotConn then GunBotConn:Disconnect(); GunBotConn = nil end
+                    GunBotConn = gun.Activated:Connect(function()
+                        local targetPos, isSelf = GetMurdererTarget()
+                        if targetPos and not isSelf then
+                            pcall(function() remote:InvokeServer(1, targetPos, "AH2") end)
+                        end
+                    end)
+                end
+                while Cfg.GunAimbot do
+                    SetupBot()
+                    task.wait(0.25)
+                end
+                if GunBotConn then GunBotConn:Disconnect(); GunBotConn = nil end
+            end)
+        end
+        Rayfield:Notify({ Title = "Gun Aimbot", Content = v and "ON" or "OFF", Duration = 2 })
+    end,
 })
 
+-- ═══════════════════════════════════════════════════════════
+-- MOVEMENT TAB
+-- ═══════════════════════════════════════════════════════════
 MoveTab:CreateSection("Speed")
 MoveTab:CreateToggle({
     Name = "Speed Hack", CurrentValue = false, Flag = "SpeedHack",
@@ -976,6 +1334,9 @@ MoveTab:CreateSlider({
     Callback = function(v) Cfg.FlyBoostSpeed = v end,
 })
 
+-- ═══════════════════════════════════════════════════════════
+-- VISUALS TAB
+-- ═══════════════════════════════════════════════════════════
 VisualTab:CreateSection("ESP")
 VisualTab:CreateToggle({
     Name = "Player ESP", CurrentValue = false, Flag = "ESP",
@@ -1039,6 +1400,20 @@ VisualTab:CreateDropdown({
     Callback = function(v) Cfg.TracerOrigin = v[1] end,
 })
 
+VisualTab:CreateSection("Gun")
+VisualTab:CreateToggle({
+    Name = "Gun Drop ESP",
+    CurrentValue = false, Flag = "GunESP",
+    Callback = function(v)
+        Cfg.GunESP = v
+        if not v then
+            if GunESPData.highlight then pcall(function() GunESPData.highlight:Destroy() end); GunESPData.highlight = nil end
+            if GunESPData.billboard then pcall(function() GunESPData.billboard:Destroy() end); GunESPData.billboard = nil end
+        end
+        Rayfield:Notify({ Title = "Gun Drop ESP", Content = v and "ON" or "OFF", Duration = 2 })
+    end,
+})
+
 VisualTab:CreateSection("Environment")
 VisualTab:CreateToggle({
     Name = "FullBright", CurrentValue = false, Flag = "FullBright",
@@ -1064,6 +1439,9 @@ VisualTab:CreateToggle({
     end,
 })
 
+-- ═══════════════════════════════════════════════════════════
+-- MISC TAB
+-- ═══════════════════════════════════════════════════════════
 MiscTab:CreateSection("Utility")
 MiscTab:CreateToggle({
     Name = "Anti AFK", CurrentValue = false, Flag = "AntiAFK",
@@ -1091,6 +1469,51 @@ MiscTab:CreateToggle({
     end,
 })
 
+MiscTab:CreateSection("⚡ Extra")
+MiscTab:CreateToggle({
+    Name = "Seconds Life (Godmode)",
+    CurrentValue = false, Flag = "SecondsLife",
+    Callback = function(v)
+        Cfg.SecondsLife = v
+        Disconnect("GodCon")
+        if v and Humanoid then
+            Connections["GodCon"] = Humanoid.HealthChanged:Connect(function()
+                if Cfg.SecondsLife and Humanoid.Health < Humanoid.MaxHealth then
+                    Humanoid.Health = Humanoid.MaxHealth
+                end
+            end)
+        end
+        Rayfield:Notify({ Title = "Seconds Life", Content = v and "ON" or "OFF", Duration = 2 })
+    end,
+})
+MiscTab:CreateToggle({
+    Name = "Touch Fling",
+    CurrentValue = false, Flag = "TouchFling",
+    Callback = function(v)
+        Cfg.TouchFling = v
+        Rayfield:Notify({ Title = "Touch Fling", Content = v and "ON" or "OFF", Duration = 2 })
+    end,
+})
+MiscTab:CreateToggle({
+    Name = "Noclip Players (Anti-Fling)",
+    CurrentValue = false, Flag = "NoclipPlrs",
+    Callback = function(v)
+        Cfg.NoclipPlayers = v
+        if not v then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    for _, part in ipairs(plr.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = true
+                        end
+                    end
+                end
+            end
+        end
+        Rayfield:Notify({ Title = "Noclip Players", Content = v and "ON" or "OFF", Duration = 2 })
+    end,
+})
+
 MiscTab:CreateSection("Server")
 MiscTab:CreateButton({
     Name = "🔄  Rejoin Server",
@@ -1108,6 +1531,7 @@ MiscTab:CreateButton({
     end,
 })
 
+-- ─── Cleanup ─────────────────────────────────────────────────────────────────
 game:BindToClose(function()
     pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -1115,14 +1539,22 @@ game:BindToClose(function()
     end
     for _, conn in pairs(Connections) do pcall(function() conn:Disconnect() end) end
     for _, label in pairs(CoinESPData) do pcall(function() label:Remove() end) end
+    if GunBotConn then pcall(function() GunBotConn:Disconnect() end) end
+    if GunESPData.highlight then pcall(function() GunESPData.highlight:Destroy() end) end
+    if GunESPData.billboard then pcall(function() GunESPData.billboard:Destroy() end) end
+    -- Remove Shoot Murder GUI
+    local guip = (gethui and gethui()) or game:FindService("CoreGui") or LocalPlayer:FindFirstChild("PlayerGui")
+    if guip and guip:FindFirstChild("NokoGunW") then
+        guip:FindFirstChild("NokoGunW"):Destroy()
+    end
     DestroyFly()
 end)
 
 Rayfield:Notify({
     Title   = "Noko Hub  MM2",
-    Content = "Loaded | Murder Mystery 2 | " .. (IsMobile and "📱 Mobile" or "🖥️ PC"),
+    Content = "Loaded v2.1.0 | Murder Mystery 2 | " .. (IsMobile and "📱 Mobile" or "🖥️ PC"),
     Duration = 5,
     Image   = 4483362458,
 })
 
-print("[Noko Hub MM2] Loaded | " .. (IsMobile and "Mobile" or "PC") .. " | " .. os.date("%H:%M:%S"))
+print("[Noko Hub MM2] Loaded v2.1.0 | " .. (IsMobile and "Mobile" or "PC") .. " | " .. os.date("%H:%M:%S"))
