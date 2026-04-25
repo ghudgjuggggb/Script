@@ -1,8 +1,3 @@
--- ╔══════════════════════════════════════════════╗
--- ║         Noko Hub  |  Murder Mystery 2        ║
--- ║              by Noko  v1.0.0                 ║
--- ╚══════════════════════════════════════════════╝
-
 local Rayfield         = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -16,83 +11,57 @@ local Camera           = workspace.CurrentCamera
 local Mouse            = LocalPlayer:GetMouse()
 local IsMobile         = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- ══════════════════ КОНФИГ ══════════════════
 local Cfg = {
-    -- Silent Aim
-    SilentAim       = false,
-    SilentAimFOV    = 120,
-    SilentAimPart   = "Head",
+    AlwaysHit        = false,
+    AlwaysHitPart    = "Head",
 
-    -- Aimbot
-    Aimbot          = false,
-    AimbotFOV       = 150,
-    AimbotPart      = "Head",
-    AimSpeedMode    = "Human",   -- Human / Fast / Instant
-    ShowFOVCircle   = true,
+    ESP              = false,
+    ESPBoxes         = true,
+    ESPNames         = true,
+    ESPHealth        = true,
+    ESPDistance      = true,
+    ESPRoles         = true,
+    ESPMaxDist       = 500,
 
-    -- ESP
-    ESP             = false,
-    ESPBoxes        = true,
-    ESPNames        = true,
-    ESPHealth       = true,
-    ESPDistance     = true,
-    ESPRoles        = true,      -- MM2: показывать роль над головой
-    ESPMaxDist      = 500,
+    Chams            = false,
+    ChamTransparency = 0.5,
 
-    -- Chams
-    Chams           = false,
-    ChamTransparency= 0.5,
+    Tracers          = false,
+    TracerOrigin     = "Bottom",
 
-    -- Tracers
-    Tracers         = false,
-    TracerOrigin    = "Bottom",
+    RoleChams        = false,
 
-    -- MM2: Role / Player
-    MurdererESP     = true,      -- всегда подсвечивать убийцу
-    SheriffESP      = true,      -- всегда подсвечивать шерифа
-    RoleChams       = false,     -- цветные чамсы по роли (красный/жёлтый/зелёный)
+    CoinFarm         = false,
+    CoinESP          = false,
+    CoinFarmDelay    = 0.1,
 
-    -- MM2: Coin Farm
-    CoinFarm        = false,
-    CoinESP         = false,
-    CoinFarmDelay   = 0.1,
+    TpToMurderer     = false,
+    TpToSheriff      = false,
 
-    -- MM2: Teleport
-    TpToMurderer    = false,
-    TpToSheriff     = false,
+    KillAura         = false,
+    KillAuraRange    = 8,
 
-    -- MM2: Kill Aura (когда ты убийца)
-    KillAura        = false,
-    KillAuraRange   = 8,
+    InfiniteStamina  = false,
+    AlwaysSprint     = false,
+    AutoPickupGun    = false,
 
-    -- MM2: Misc
-    InfiniteStamina = false,
-    AlwaysSprint    = false,
-    AutoPickupGun   = false,     -- подбирать пушку шерифа с земли
+    SpeedHack        = false,
+    SpeedValue       = 32,
+    JumpHack         = false,
+    JumpValue        = 100,
+    InfiniteJump     = false,
+    Noclip           = false,
+    Fly              = false,
+    FlySpeed         = 60,
+    FlyBoostSpeed    = 150,
 
-    -- Movement
-    SpeedHack       = false,
-    SpeedValue      = 32,
-    JumpHack        = false,
-    JumpValue       = 100,
-    InfiniteJump    = false,
-    Noclip          = false,
-    Fly             = false,
-    FlySpeed        = 60,
-    FlyBoostSpeed   = 150,
+    FullBright       = false,
+    FullBrightValue  = 2,
 
-    -- Visuals
-    FullBright      = false,
-    FullBrightValue = 2,
-
-    -- Misc
-    AntiAFK         = false,
-    FPSBoost        = false,
+    AntiAFK          = false,
+    FPSBoost         = false,
 }
 
--- ══════════════════ РОЛИ MM2 ══════════════════
--- Определяет роль игрока по инструментам в рюкзаке/персонаже
--- Нож = Murderer, Пушка/Revolver = Sheriff, иначе Innocent
 local RoleColors = {
     Murderer = Color3.fromRGB(255, 50,  50),
     Sheriff  = Color3.fromRGB(255, 215, 0),
@@ -104,21 +73,17 @@ local GunNames   = {"Sheriff", "Gun", "Revolver", "sheriff", "MM2Gun"}
 
 local function GetRole(plr)
     if not plr or not plr.Character then return "Innocent" end
-    -- Проверяем инструменты персонажа
     for _, tool in ipairs(plr.Character:GetChildren()) do
         if tool:IsA("Tool") then
             local n = tool.Name:lower()
-            -- Нож — убийца
             for _, kn in ipairs(KnifeNames) do
                 if n:find(kn:lower()) then return "Murderer" end
             end
-            -- Пушка — шериф
             for _, gn in ipairs(GunNames) do
                 if n:find(gn:lower()) then return "Sheriff" end
             end
         end
     end
-    -- Проверяем Backpack
     local bp = plr:FindFirstChild("Backpack")
     if bp then
         for _, tool in ipairs(bp:GetChildren()) do
@@ -133,7 +98,6 @@ local function GetRole(plr)
             end
         end
     end
-    -- Fallback: ищем StringValue "Role" на игроке
     local rv = plr:FindFirstChild("Role")
     if rv and rv:IsA("StringValue") then return rv.Value end
     return "Innocent"
@@ -143,7 +107,6 @@ local function GetMyRole()
     return GetRole(LocalPlayer)
 end
 
--- ══════════════════ СТАНДАРТНЫЕ УТИЛИТЫ ══════════════════
 local BodyPartAliases = {
     ["Head"]       = {"Head"},
     ["UpperTorso"] = {"UpperTorso", "Torso"},
@@ -156,20 +119,12 @@ local BodyPartAliases = {
 }
 
 local Character, Humanoid, RootPart
-local Connections = {}
-local ESPData     = {}
-local ChamData    = {}
-local RoleChamData= {}
+local Connections  = {}
+local ESPData      = {}
+local ChamData     = {}
+local RoleChamData = {}
 local FlyBG, FlyBV = nil, nil
-local AimTarget   = nil
-
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Visible      = false
-FOVCircle.Filled       = false
-FOVCircle.Color        = Color3.fromRGB(255, 255, 255)
-FOVCircle.Thickness    = 1.4
-FOVCircle.Transparency = 1
-FOVCircle.NumSides     = 80
+local CoinESPData  = {}
 
 local function GetChar()
     Character = LocalPlayer.Character
@@ -189,16 +144,20 @@ local function W2S(pos)
 end
 
 local function FOVScale()
-    if IsMobile then
-        return Camera.ViewportSize.X / 1280
-    end
+    if IsMobile then return Camera.ViewportSize.X / 1280 end
     return 1
 end
 
-local function ScreenDist(pos3D)
-    local sp, vis = Camera:WorldToViewportPoint(pos3D)
-    if not vis then return math.huge end
-    return (Vector2.new(sp.X, sp.Y) - VPCenter()).Magnitude / FOVScale()
+local function PartDist(a, b)
+    if not a or not b then return math.huge end
+    return (a.Position - b.Position).Magnitude
+end
+
+local function Disconnect(key)
+    if Connections[key] then
+        pcall(function() Connections[key]:Disconnect() end)
+        Connections[key] = nil
+    end
 end
 
 local function ResolvePart(plr, alias)
@@ -215,42 +174,19 @@ local function ResolvePart(plr, alias)
         or plr.Character:FindFirstChild("HumanoidRootPart")
 end
 
-local function GetClosest(fov)
-    local best, bestDist = nil, fov
+local function GetMurderer()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
             local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
-                      or plr.Character:FindFirstChild("Humanoid")
             local root = plr.Character:FindFirstChild("HumanoidRootPart")
-            if hum and root and hum.Health > 0 then
-                local d = ScreenDist(root.Position)
-                if d < bestDist then
-                    best     = plr
-                    bestDist = d
-                end
+            if hum and root and hum.Health > 0 and GetRole(plr) == "Murderer" then
+                return plr
             end
         end
     end
-    return best
+    return nil
 end
 
-local function PartDist(a, b)
-    if not a or not b then return math.huge end
-    return (a.Position - b.Position).Magnitude
-end
-
-local function Disconnect(key)
-    if Connections[key] then
-        pcall(function() Connections[key]:Disconnect() end)
-        Connections[key] = nil
-    end
-end
-
-local function SmoothFactor(speed, dt)
-    return 1 - math.exp(-speed * dt)
-end
-
--- ══════════════════ ПЕРСОНАЖ ══════════════════
 local function OnCharacterAdded(char)
     Character = char
     Humanoid  = char:WaitForChild("Humanoid")
@@ -266,7 +202,6 @@ end
 LocalPlayer.CharacterAdded:Connect(OnCharacterAdded)
 if LocalPlayer.Character then OnCharacterAdded(LocalPlayer.Character) end
 
--- ══════════════════ FLY ══════════════════
 local function SetupFly()
     if not RootPart then return end
     local oldBG = RootPart:FindFirstChild("NokoFlyBG")
@@ -285,7 +220,8 @@ local function DestroyFly()
     if RootPart then
         local bg = RootPart:FindFirstChild("NokoFlyBG")
         local bv = RootPart:FindFirstChild("NokoFlyBV")
-        if bg then bg:Destroy() end; if bv then bv:Destroy() end
+        if bg then bg:Destroy() end
+        if bv then bv:Destroy() end
     end
     FlyBG, FlyBV = nil, nil
     if Humanoid then Humanoid.PlatformStand = false end
@@ -312,7 +248,6 @@ local function GetFlyDir()
     return dir
 end
 
--- ══════════════════ ESP DRAWING ══════════════════
 local ESPColor = {
     Box  = Color3.fromRGB(255, 60, 60),
     Name = Color3.fromRGB(255, 255, 255),
@@ -351,7 +286,7 @@ local function CreateESP(plr)
         NameTxt = NewText(13),
         HpTxt   = NewText(11),
         DistTxt = NewText(11),
-        RoleTxt = NewText(12),   -- MM2: роль
+        RoleTxt = NewText(12),
         HpBG    = hpBG,
         HpFill  = hpFill,
         Tracer  = NewLine(),
@@ -365,7 +300,6 @@ local function RemoveESP(plr)
     ESPData[plr] = nil
 end
 
--- ══════════════════ CHAMS ══════════════════
 local function CreateChams(plr)
     if ChamData[plr] or not plr.Character then return end
     local hl = Instance.new("Highlight")
@@ -381,7 +315,6 @@ local function RemoveChams(plr)
     if ChamData[plr] then pcall(function() ChamData[plr]:Destroy() end); ChamData[plr] = nil end
 end
 
--- MM2: RoleChams — подсветка по роли
 local function CreateRoleChams(plr)
     if RoleChamData[plr] or not plr.Character then return end
     local role = GetRole(plr)
@@ -399,7 +332,6 @@ local function RemoveRoleChams(plr)
     if RoleChamData[plr] then pcall(function() RoleChamData[plr]:Destroy() end); RoleChamData[plr] = nil end
 end
 
--- MM2: обновляем цвет RoleChams каждый кадр (роль может измениться)
 local function UpdateRoleChams()
     if not Cfg.RoleChams then return end
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -420,12 +352,8 @@ local function UpdateRoleChams()
     end
 end
 
--- ══════════════════ MM2: COIN ESP ══════════════════
-local CoinESPData = {}
-
 local function FindCoins()
     local coins = {}
-    -- MM2 монеты обычно называются "Coin" или "Coin_1" и т.д.
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") and (obj.Name == "Coin" or obj.Name:lower():find("coin")) then
             table.insert(coins, obj)
@@ -435,7 +363,6 @@ local function FindCoins()
 end
 
 local function UpdateCoinESP()
-    -- Удаляем старые
     for coin, label in pairs(CoinESPData) do
         if not coin or not coin.Parent then
             pcall(function() label:Remove() end)
@@ -443,7 +370,7 @@ local function UpdateCoinESP()
         end
     end
     if not Cfg.CoinESP then
-        for coin, label in pairs(CoinESPData) do
+        for _, label in pairs(CoinESPData) do
             pcall(function() label.Visible = false end)
         end
         return
@@ -470,7 +397,6 @@ local function UpdateCoinESP()
     end
 end
 
--- ══════════════════ MM2: COIN FARM ══════════════════
 local lastCoinFarm = 0
 local function DoCoinFarm()
     if not Cfg.CoinFarm then return end
@@ -479,18 +405,6 @@ local function DoCoinFarm()
     if now - lastCoinFarm < Cfg.CoinFarmDelay then return end
     lastCoinFarm = now
     local coins = FindCoins()
-    for _, coin in ipairs(coins) do
-        if (RootPart.Position - coin.Position).Magnitude < 8 then
-            -- Тп к монете и обратно
-            local orig = RootPart.CFrame
-            pcall(function()
-                RootPart.CFrame = CFrame.new(coin.Position)
-            end)
-            task.wait(0.05)
-            break -- по одной за тик
-        end
-    end
-    -- Тп к ближайшей монете
     local nearest, nearDist = nil, math.huge
     for _, coin in ipairs(coins) do
         local d = (RootPart.Position - coin.Position).Magnitude
@@ -503,12 +417,10 @@ local function DoCoinFarm()
     end
 end
 
--- ══════════════════ MM2: KILL AURA ══════════════════
 local function DoKillAura()
     if not Cfg.KillAura then return end
     if GetMyRole() ~= "Murderer" then return end
     if not GetChar() then return end
-    -- Ищем инструмент-нож
     local knife = nil
     for _, tool in ipairs(Character:GetChildren()) do
         if tool:IsA("Tool") then
@@ -519,19 +431,16 @@ local function DoKillAura()
         end
     end
     if not knife then return end
-    -- Атакуем всех в радиусе
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
             local root = plr.Character:FindFirstChild("HumanoidRootPart")
             local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
             if root and hum and hum.Health > 0 then
                 if PartDist(RootPart, root) <= Cfg.KillAuraRange then
-                    -- Тп к жертве и активируем нож
                     local savedCF = RootPart.CFrame
                     pcall(function()
                         RootPart.CFrame = root.CFrame * CFrame.new(0, 0, -2)
                     end)
-                    -- Активируем нож
                     pcall(function()
                         local activate = knife:FindFirstChild("Activate")
                             or knife:FindFirstChild("RemoteEvent")
@@ -539,7 +448,6 @@ local function DoKillAura()
                             activate:FireServer()
                         end
                     end)
-                    -- Ищем RemoteEvent в ReplicatedStorage
                     pcall(function()
                         local remotes = ReplicatedStorage:FindFirstChild("Remotes")
                             or ReplicatedStorage:FindFirstChild("Events")
@@ -561,17 +469,14 @@ local function DoKillAura()
     end
 end
 
--- ══════════════════ MM2: AUTO PICKUP GUN ══════════════════
 local function DoAutoPickupGun()
     if not Cfg.AutoPickupGun then return end
     if not GetChar() then return end
-    -- Ищем пушку на земле в workspace
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Tool") then
             local n = obj.Name:lower()
             for _, gn in ipairs(GunNames) do
                 if n:find(gn:lower()) and not obj.Parent:IsA("Model") then
-                    -- Пушка лежит на земле
                     local pos = obj:FindFirstChild("Handle")
                     if pos then
                         local d = (RootPart.Position - pos.Position).Magnitude
@@ -587,7 +492,6 @@ local function DoAutoPickupGun()
     end
 end
 
--- ══════════════════ MM2: TELEPORT ══════════════════
 local function GetPlayerByRole(role)
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and GetRole(plr) == role then
@@ -597,34 +501,39 @@ local function GetPlayerByRole(role)
     return nil
 end
 
--- ══════════════════ ESP UPDATE ══════════════════
 local function UpdateESP()
     local vp = Camera.ViewportSize
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == LocalPlayer then continue end
-        local d    = ESPData[plr]
-        if not d   then continue end
+
+        if Cfg.ESP and not ESPData[plr] then
+            CreateESP(plr)
+        end
+
+        local d = ESPData[plr]
+        if not d then continue end
+
         local char = plr.Character
         local hum  = char and char:FindFirstChildOfClass("Humanoid")
         local root = char and char:FindFirstChild("HumanoidRootPart")
         local head = char and char:FindFirstChild("Head")
+
         if not (char and hum and root and head) then
             for _, obj in pairs(d) do
                 if obj and type(obj.Visible) == "boolean" then obj.Visible = false end
             end
             continue
         end
+
         local rootSP, rootVis, rootZ = W2S(root.Position)
         local headSP                  = W2S(head.Position)
         local alive   = hum.Health > 0
         local dist3D  = GetChar() and RootPart and math.floor(PartDist(RootPart, root)) or 9999
         local show    = Cfg.ESP and rootVis and rootZ > 0 and alive and dist3D <= Cfg.ESPMaxDist
 
-        -- MM2: роль определяем для цвета
-        local role     = GetRole(plr)
-        local roleCol  = RoleColors[role] or RoleColors.Innocent
+        local role    = GetRole(plr)
+        local roleCol = RoleColors[role] or RoleColors.Innocent
 
-        -- ESP Box
         if show and Cfg.ESPBoxes then
             local topSP = W2S(root.Position + Vector3.new(0, 3.2, 0))
             local botSP = W2S(root.Position - Vector3.new(0, 3.2, 0))
@@ -636,7 +545,7 @@ local function UpdateESP()
             local bl    = Vector2.new(rootSP.X - w/2, botSP.Y)
             d.Box.PointA = tl; d.Box.PointB = tr
             d.Box.PointC = br; d.Box.PointD = bl
-            d.Box.Color  = roleCol          -- MM2: цвет бокса по роли
+            d.Box.Color  = roleCol
             d.Box.Visible = true
             if Cfg.ESPHealth then
                 local ratio   = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
@@ -661,7 +570,6 @@ local function UpdateESP()
             d.Box.Visible = false; d.HpBG.Visible = false; d.HpFill.Visible = false
         end
 
-        -- Name
         if show and Cfg.ESPNames then
             d.NameTxt.Text     = plr.DisplayName
             d.NameTxt.Color    = Color3.fromRGB(255, 255, 255)
@@ -669,7 +577,6 @@ local function UpdateESP()
             d.NameTxt.Visible  = true
         else d.NameTxt.Visible = false end
 
-        -- HP
         if show and Cfg.ESPHealth then
             d.HpTxt.Text     = math.floor(hum.Health) .. " HP"
             d.HpTxt.Color    = Color3.fromHSV(math.clamp(hum.Health/hum.MaxHealth,0,1)*0.33,1,1)
@@ -677,7 +584,6 @@ local function UpdateESP()
             d.HpTxt.Visible  = true
         else d.HpTxt.Visible = false end
 
-        -- Distance
         if show and Cfg.ESPDistance then
             d.DistTxt.Text     = dist3D .. "m"
             d.DistTxt.Color    = Color3.fromRGB(180,180,180)
@@ -685,7 +591,6 @@ local function UpdateESP()
             d.DistTxt.Visible  = true
         else d.DistTxt.Visible = false end
 
-        -- MM2: Role label
         if show and Cfg.ESPRoles then
             local roleLabel = role == "Murderer" and "🔪 MURDERER"
                            or role == "Sheriff"  and "🔫 SHERIFF"
@@ -696,13 +601,12 @@ local function UpdateESP()
             d.RoleTxt.Visible  = true
         else d.RoleTxt.Visible = false end
 
-        -- Tracers
         if show and Cfg.Tracers then
             local origin = Cfg.TracerOrigin == "Bottom" and Vector2.new(vp.X/2, vp.Y)
                         or Cfg.TracerOrigin == "Center"  and Vector2.new(vp.X/2, vp.Y/2)
                         or                                   Vector2.new(vp.X/2, 0)
             d.Tracer.From = origin; d.Tracer.To = rootSP
-            d.Tracer.Color = roleCol             -- MM2: цвет трейсера по роли
+            d.Tracer.Color = roleCol
             d.Tracer.Visible = true
         else d.Tracer.Visible = false end
     end
@@ -730,85 +634,42 @@ for _, plr in ipairs(Players:GetPlayers()) do
     if plr ~= LocalPlayer then OnPlayerAdded(plr) end
 end
 
--- ══════════════════ AIMBOT ══════════════════
-local AimSpeedPresets = { Human = 3, Fast = 12, Instant = 0 }
-
-local function GetAimAlpha(dt)
-    if Cfg.AimSpeedMode == "Instant" then return 1 end
-    return SmoothFactor(AimSpeedPresets[Cfg.AimSpeedMode] or 8, dt)
-end
-
-local OrigCameraType = Enum.CameraType.Custom
-local AimActive = false
-
-local function SetAimActive(state)
-    if state == AimActive then return end
-    AimActive = state
-    if state then
-        OrigCameraType = Camera.CameraType
-        pcall(function() Camera.CameraType = Enum.CameraType.Scriptable end)
-    else
-        pcall(function() Camera.CameraType = OrigCameraType end)
+local function DoAlwaysHit()
+    if not Cfg.AlwaysHit then
+        if Camera.CameraType == Enum.CameraType.Scriptable then
+            pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
+        end
+        return
     end
-end
-
-local function DoAimbot(dt)
-    if not Cfg.Aimbot then SetAimActive(false); return end
-    local target = GetClosest(Cfg.AimbotFOV)
-    AimTarget = target
-    if not target then SetAimActive(false); return end
-    local part = ResolvePart(target, Cfg.AimbotPart)
-    if not part then SetAimActive(false); return end
-    SetAimActive(true)
-    local targetCF = CFrame.new(Camera.CFrame.Position, part.Position)
-    local alpha    = GetAimAlpha(dt)
-    Camera.CFrame  = alpha >= 1 and targetCF or Camera.CFrame:Lerp(targetCF, alpha)
-end
-
-local function DoSilentAim()
-    local target = GetClosest(Cfg.SilentAimFOV)
-    if not target then return end
-    local part = ResolvePart(target, Cfg.SilentAimPart)
+    local murderer = GetMurderer()
+    if not murderer then
+        if Camera.CameraType == Enum.CameraType.Scriptable then
+            pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
+        end
+        return
+    end
+    local part = ResolvePart(murderer, Cfg.AlwaysHitPart)
     if not part then return end
     local _, vis = W2S(part.Position)
     if not vis then return end
     pcall(function() Camera.CameraType = Enum.CameraType.Scriptable end)
-    local targetCF = CFrame.new(Camera.CFrame.Position, part.Position)
-    local alpha    = GetAimAlpha(1/60)
-    Camera.CFrame  = alpha >= 1 and targetCF or Camera.CFrame:Lerp(targetCF, alpha)
+    Camera.CFrame = CFrame.new(Camera.CFrame.Position, part.Position)
 end
 
--- ══════════════════ RENDER LOOP ══════════════════
 Connections["RenderStepped"] = RunService.RenderStepped:Connect(function(dt)
-    if Cfg.SilentAim then
-        DoSilentAim()
-    else
-        if Camera.CameraType == Enum.CameraType.Scriptable and not Cfg.Aimbot then
-            pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
-        end
-    end
-
-    FOVCircle.Visible = (Cfg.Aimbot or Cfg.SilentAim) and Cfg.ShowFOVCircle
-    if FOVCircle.Visible then
-        local r = Cfg.Aimbot and Cfg.AimbotFOV or Cfg.SilentAimFOV
-        FOVCircle.Position = VPCenter()
-        FOVCircle.Radius   = r * FOVScale()
-    end
+    DoAlwaysHit()
 
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
-            if Cfg.ESP   and not ESPData[plr]  then CreateESP(plr)  end
+            if Cfg.ESP and not ESPData[plr] then CreateESP(plr) end
             if Cfg.Chams and not ChamData[plr] and plr.Character then CreateChams(plr) end
             if ChamData[plr] and plr.Character then ChamData[plr].Adornee = plr.Character end
         end
     end
+
     UpdateESP()
     UpdateRoleChams()
     UpdateCoinESP()
-end)
-
-RunService:BindToRenderStep("NokoAimbot", 201, function(dt)
-    if Cfg.Aimbot then DoAimbot(dt) else SetAimActive(false) end
 end)
 
 Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
@@ -845,11 +706,9 @@ Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
                           or FlyBV.Velocity * math.max(0, 1 - dt * 10)
         end
     end
-    -- MM2 спец
     DoKillAura()
     DoCoinFarm()
     DoAutoPickupGun()
-    -- MM2: тп к убийце
     if Cfg.TpToMurderer then
         local m = GetPlayerByRole("Murderer")
         if m and m.Character then
@@ -857,7 +716,6 @@ Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
             if r then pcall(function() RootPart.CFrame = r.CFrame * CFrame.new(0, 0, 4) end) end
         end
     end
-    -- MM2: тп к шерифу
     if Cfg.TpToSheriff then
         local s = GetPlayerByRole("Sheriff")
         if s and s.Character then
@@ -867,12 +725,11 @@ Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
--- ══════════════════ GUI ══════════════════
 local Window = Rayfield:CreateWindow({
     Name            = "Noko Hub  |  Murder Mystery 2",
     Icon            = 0,
     LoadingTitle    = "Noko Hub",
-    LoadingSubtitle = "Murder Mystery 2  |  v1.0.0  |  " .. (IsMobile and "📱 Mobile" or "🖥️ PC"),
+    LoadingSubtitle = "Murder Mystery 2  |  v2.0.0  |  " .. (IsMobile and "📱 Mobile" or "🖥️ PC"),
     Theme           = "Default",
     DisableRayfieldPrompts   = false,
     DisableBuildWarnings     = false,
@@ -887,15 +744,14 @@ local MoveTab   = Window:CreateTab("🏃 Movement", 4483362458)
 local VisualTab = Window:CreateTab("👁️ Visuals",  4483362458)
 local MiscTab   = Window:CreateTab("⚙️ Misc",     4483362458)
 
--- ══════════ TAB: MM2 ══════════
-MM2Tab:CreateSection("🎭 Роли")
+MM2Tab:CreateSection("🎭 Roles")
 MM2Tab:CreateToggle({
     Name = "Role ESP (🔪/🔫/😇)",
     CurrentValue = true, Flag = "ESPRoles",
     Callback = function(v) Cfg.ESPRoles = v end,
 })
 MM2Tab:CreateToggle({
-    Name = "Role Chams (цвет по роли)",
+    Name = "Role Chams (color by role)",
     CurrentValue = false, Flag = "RoleChams",
     Callback = function(v)
         Cfg.RoleChams = v
@@ -910,7 +766,7 @@ MM2Tab:CreateToggle({
     end,
 })
 
-MM2Tab:CreateSection("💰 Монеты")
+MM2Tab:CreateSection("💰 Coins")
 MM2Tab:CreateToggle({
     Name = "Coin ESP",
     CurrentValue = false, Flag = "CoinESP",
@@ -923,7 +779,7 @@ MM2Tab:CreateToggle({
     end,
 })
 MM2Tab:CreateToggle({
-    Name = "Coin Farm (авто-сбор)",
+    Name = "Coin Farm (auto collect)",
     CurrentValue = false, Flag = "CoinFarm",
     Callback = function(v)
         Cfg.CoinFarm = v
@@ -937,13 +793,13 @@ MM2Tab:CreateSlider({
     Callback = function(v) Cfg.CoinFarmDelay = v end,
 })
 
-MM2Tab:CreateSection("🗡️ Убийца")
+MM2Tab:CreateSection("🗡️ Murderer")
 MM2Tab:CreateToggle({
     Name = "Kill Aura",
     CurrentValue = false, Flag = "KillAura",
     Callback = function(v)
         Cfg.KillAura = v
-        Rayfield:Notify({ Title = "Kill Aura", Content = v and "ON (только убийца)" or "OFF", Duration = 2 })
+        Rayfield:Notify({ Title = "Kill Aura", Content = v and "ON (Murderer only)" or "OFF", Duration = 2 })
     end,
 })
 MM2Tab:CreateSlider({
@@ -953,9 +809,9 @@ MM2Tab:CreateSlider({
     Callback = function(v) Cfg.KillAuraRange = v end,
 })
 
-MM2Tab:CreateSection("🚀 Телепорт")
+MM2Tab:CreateSection("🚀 Teleport")
 MM2Tab:CreateToggle({
-    Name = "TP к Убийце",
+    Name = "TP to Murderer (continuous)",
     CurrentValue = false, Flag = "TpMurderer",
     Callback = function(v)
         Cfg.TpToMurderer = v
@@ -964,7 +820,7 @@ MM2Tab:CreateToggle({
     end,
 })
 MM2Tab:CreateToggle({
-    Name = "TP к Шерифу",
+    Name = "TP to Sheriff (continuous)",
     CurrentValue = false, Flag = "TpSheriff",
     Callback = function(v)
         Cfg.TpToSheriff = v
@@ -973,7 +829,7 @@ MM2Tab:CreateToggle({
     end,
 })
 MM2Tab:CreateButton({
-    Name = "📍  TP к Убийце (один раз)",
+    Name = "📍  TP to Murderer (once)",
     Callback = function()
         if not GetChar() then return end
         local m = GetPlayerByRole("Murderer")
@@ -981,15 +837,15 @@ MM2Tab:CreateButton({
             local r = m.Character:FindFirstChild("HumanoidRootPart")
             if r then
                 pcall(function() RootPart.CFrame = r.CFrame * CFrame.new(0,0,5) end)
-                Rayfield:Notify({ Title = "TP", Content = "Тп к убийце: " .. m.DisplayName, Duration = 2 })
+                Rayfield:Notify({ Title = "TP", Content = "Teleported to: " .. m.DisplayName, Duration = 2 })
             end
         else
-            Rayfield:Notify({ Title = "TP", Content = "Убийца не найден", Duration = 2 })
+            Rayfield:Notify({ Title = "TP", Content = "Murderer not found", Duration = 2 })
         end
     end,
 })
 MM2Tab:CreateButton({
-    Name = "📍  TP к Шерифу (один раз)",
+    Name = "📍  TP to Sheriff (once)",
     Callback = function()
         if not GetChar() then return end
         local s = GetPlayerByRole("Sheriff")
@@ -997,17 +853,17 @@ MM2Tab:CreateButton({
             local r = s.Character:FindFirstChild("HumanoidRootPart")
             if r then
                 pcall(function() RootPart.CFrame = r.CFrame * CFrame.new(0,0,5) end)
-                Rayfield:Notify({ Title = "TP", Content = "Тп к шерифу: " .. s.DisplayName, Duration = 2 })
+                Rayfield:Notify({ Title = "TP", Content = "Teleported to: " .. s.DisplayName, Duration = 2 })
             end
         else
-            Rayfield:Notify({ Title = "TP", Content = "Шериф не найден", Duration = 2 })
+            Rayfield:Notify({ Title = "TP", Content = "Sheriff not found", Duration = 2 })
         end
     end,
 })
 
-MM2Tab:CreateSection("🔫 Шериф")
+MM2Tab:CreateSection("🔫 Sheriff")
 MM2Tab:CreateToggle({
-    Name = "Auto Pickup Gun (с земли)",
+    Name = "Auto Pickup Gun",
     CurrentValue = false, Flag = "AutoGun",
     Callback = function(v)
         Cfg.AutoPickupGun = v
@@ -1015,7 +871,7 @@ MM2Tab:CreateToggle({
     end,
 })
 
-MM2Tab:CreateSection("⚡ Стамина")
+MM2Tab:CreateSection("⚡ Stamina")
 MM2Tab:CreateToggle({
     Name = "Infinite Stamina",
     CurrentValue = false, Flag = "InfStamina",
@@ -1033,68 +889,29 @@ MM2Tab:CreateToggle({
     end,
 })
 
--- ══════════ TAB: COMBAT ══════════
-CombatTab:CreateSection("Silent Aim")
+CombatTab:CreateSection("Always Hit — Murderer Only")
 CombatTab:CreateToggle({
-    Name = "Silent Aim", CurrentValue = false, Flag = "SilentAim",
+    Name = "Always Hit",
+    CurrentValue = false, Flag = "AlwaysHit",
     Callback = function(v)
-        Cfg.SilentAim = v
+        Cfg.AlwaysHit = v
         if not v then
-            pcall(function()
-                if not Cfg.Aimbot then Camera.CameraType = Enum.CameraType.Custom end
-            end)
+            pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
         end
-        Rayfield:Notify({ Title = "Silent Aim", Content = v and "ON" or "OFF", Duration = 2 })
+        Rayfield:Notify({
+            Title   = "Always Hit",
+            Content = v and "ON — bullet locked to Murderer" or "OFF",
+            Duration = 3
+        })
     end,
 })
-CombatTab:CreateSlider({
-    Name = "Silent Aim FOV", Range = {20,500}, Increment = 5, Suffix = "px",
-    CurrentValue = 120, Flag = "SilentFOV",
-    Callback = function(v) Cfg.SilentAimFOV = v end,
-})
 CombatTab:CreateDropdown({
-    Name = "Silent Aim Part",
+    Name = "Target Part",
     Options = {"Head","UpperTorso","LowerTorso","Left Arm","Right Arm","Left Leg","Right Leg","Root"},
-    CurrentOption = {"Head"}, MultipleOptions = false, Flag = "SilentPart",
-    Callback = function(v) Cfg.SilentAimPart = v[1] end,
+    CurrentOption = {"Head"}, MultipleOptions = false, Flag = "AlwaysHitPart",
+    Callback = function(v) Cfg.AlwaysHitPart = v[1] end,
 })
 
-CombatTab:CreateSection("Aimbot")
-CombatTab:CreateToggle({
-    Name = "Aimbot", CurrentValue = false, Flag = "Aimbot",
-    Callback = function(v)
-        Cfg.Aimbot = v
-        if not v then SetAimActive(false) end
-        Rayfield:Notify({ Title = "Aimbot", Content = v and "ON" or "OFF", Duration = 2 })
-    end,
-})
-CombatTab:CreateSlider({
-    Name = "Aimbot FOV", Range = {20,600}, Increment = 10, Suffix = "px",
-    CurrentValue = 150, Flag = "AimbotFOV",
-    Callback = function(v) Cfg.AimbotFOV = v end,
-})
-CombatTab:CreateDropdown({
-    Name = "Aimbot Target Part",
-    Options = {"Head","UpperTorso","LowerTorso","Left Arm","Right Arm","Left Leg","Right Leg","Root"},
-    CurrentOption = {"Head"}, MultipleOptions = false, Flag = "AimbotPart",
-    Callback = function(v) Cfg.AimbotPart = v[1] end,
-})
-CombatTab:CreateDropdown({
-    Name = "🎯 Aim Speed",
-    Options = {"Human","Fast","Instant"},
-    CurrentOption = {"Human"}, MultipleOptions = false, Flag = "AimSpeed",
-    Callback = function(v)
-        Cfg.AimSpeedMode = v[1]
-        local labels = { Human="🐢 Как человек", Fast="⚡ Ускоренное", Instant="💥 Моментальный" }
-        Rayfield:Notify({ Title = "Aim Speed", Content = labels[v[1]] or v[1], Duration = 2 })
-    end,
-})
-CombatTab:CreateToggle({
-    Name = "Show FOV Circle", CurrentValue = true, Flag = "ShowFOV",
-    Callback = function(v) Cfg.ShowFOVCircle = v end,
-})
-
--- ══════════ TAB: MOVEMENT ══════════
 MoveTab:CreateSection("Speed")
 MoveTab:CreateToggle({
     Name = "Speed Hack", CurrentValue = false, Flag = "SpeedHack",
@@ -1126,7 +943,8 @@ MoveTab:CreateSlider({
 })
 MoveTab:CreateToggle({
     Name = "Infinite Jump", CurrentValue = false, Flag = "InfJump",
-    Callback = function(v) Cfg.InfiniteJump = v
+    Callback = function(v)
+        Cfg.InfiniteJump = v
         Rayfield:Notify({ Title = "Infinite Jump", Content = v and "ON" or "OFF", Duration = 2 })
     end,
 })
@@ -1134,7 +952,8 @@ MoveTab:CreateToggle({
 MoveTab:CreateSection("Advanced")
 MoveTab:CreateToggle({
     Name = "Noclip", CurrentValue = false, Flag = "Noclip",
-    Callback = function(v) Cfg.Noclip = v
+    Callback = function(v)
+        Cfg.Noclip = v
         Rayfield:Notify({ Title = "Noclip", Content = v and "ON" or "OFF", Duration = 2 })
     end,
 })
@@ -1157,7 +976,6 @@ MoveTab:CreateSlider({
     Callback = function(v) Cfg.FlyBoostSpeed = v end,
 })
 
--- ══════════ TAB: VISUALS ══════════
 VisualTab:CreateSection("ESP")
 VisualTab:CreateToggle({
     Name = "Player ESP", CurrentValue = false, Flag = "ESP",
@@ -1210,7 +1028,8 @@ VisualTab:CreateSlider({
 VisualTab:CreateSection("Tracers")
 VisualTab:CreateToggle({
     Name = "Tracers", CurrentValue = false, Flag = "Tracers",
-    Callback = function(v) Cfg.Tracers = v
+    Callback = function(v)
+        Cfg.Tracers = v
         Rayfield:Notify({ Title = "Tracers", Content = v and "ON" or "OFF", Duration = 2 })
     end,
 })
@@ -1245,7 +1064,6 @@ VisualTab:CreateToggle({
     end,
 })
 
--- ══════════ TAB: MISC ══════════
 MiscTab:CreateSection("Utility")
 MiscTab:CreateToggle({
     Name = "Anti AFK", CurrentValue = false, Flag = "AntiAFK",
@@ -1277,35 +1095,32 @@ MiscTab:CreateSection("Server")
 MiscTab:CreateButton({
     Name = "🔄  Rejoin Server",
     Callback = function()
-        Rayfield:Notify({ Title = "Rejoin", Content = "Переподключение через 2с...", Duration = 2 })
+        Rayfield:Notify({ Title = "Rejoin", Content = "Reconnecting in 2s...", Duration = 2 })
         task.wait(2)
         pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
     end,
 })
 MiscTab:CreateButton({
-    Name = "📋  Копировать PlaceId",
+    Name = "📋  Copy PlaceId",
     Callback = function()
         setclipboard(tostring(game.PlaceId))
-        Rayfield:Notify({ Title = "Скопировано", Content = "PlaceId: " .. game.PlaceId, Duration = 3 })
+        Rayfield:Notify({ Title = "Copied", Content = "PlaceId: " .. game.PlaceId, Duration = 3 })
     end,
 })
 
--- ══════════════════ CLEANUP ══════════════════
 game:BindToClose(function()
-    FOVCircle:Remove()
-    pcall(function() RunService:UnbindFromRenderStep("NokoAimbot") end)
+    pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
     for _, plr in ipairs(Players:GetPlayers()) do
         RemoveESP(plr); RemoveChams(plr); RemoveRoleChams(plr)
     end
     for _, conn in pairs(Connections) do pcall(function() conn:Disconnect() end) end
     for _, label in pairs(CoinESPData) do pcall(function() label:Remove() end) end
     DestroyFly()
-    pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
 end)
 
 Rayfield:Notify({
     Title   = "Noko Hub  MM2",
-    Content = "Загружен | Murder Mystery 2 | " .. (IsMobile and "📱 Mobile" or "🖥️ PC"),
+    Content = "Loaded | Murder Mystery 2 | " .. (IsMobile and "📱 Mobile" or "🖥️ PC"),
     Duration = 5,
     Image   = 4483362458,
 })
