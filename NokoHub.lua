@@ -482,15 +482,46 @@ local function GetAimAlpha(dt)
     return SmoothFactor(spd, dt)
 end
 
+local OrigCameraType = Enum.CameraType.Custom
+local AimActive = false
+
+local function SetAimActive(state)
+    if state == AimActive then return end
+    AimActive = state
+    if state then
+        -- Rivals/любая игра: переводим камеру в Scriptable чтобы игра не перезаписывала CFrame
+        OrigCameraType = Camera.CameraType
+        pcall(function() Camera.CameraType = Enum.CameraType.Scriptable end)
+    else
+        -- Возвращаем камеру обратно
+        pcall(function() Camera.CameraType = OrigCameraType end)
+    end
+end
+
 local function DoAimbot(dt)
+    if not Cfg.Aimbot then
+        SetAimActive(false)
+        return
+    end
     local target = GetClosest(Cfg.AimbotFOV)
     AimTarget = target
-    if not target then return end
+    if not target then
+        SetAimActive(false)
+        return
+    end
     local part = ResolvePart(target, Cfg.AimbotPart)
-    if not part then return end
+    if not part then
+        SetAimActive(false)
+        return
+    end
+    SetAimActive(true)
     local targetCF = CFrame.new(Camera.CFrame.Position, part.Position)
     local alpha    = GetAimAlpha(dt)
-    Camera.CFrame  = Camera.CFrame:Lerp(targetCF, alpha)
+    if alpha >= 1 then
+        Camera.CFrame = targetCF
+    else
+        Camera.CFrame = Camera.CFrame:Lerp(targetCF, alpha)
+    end
 end
 
 local function DoSilentAim()
@@ -500,17 +531,26 @@ local function DoSilentAim()
     if not part then return end
     local sp, vis = W2S(part.Position)
     if not vis then return end
-    if IsMobile then
-        local targetCF  = CFrame.new(Camera.CFrame.Position, part.Position)
-        local alpha     = GetAimAlpha(1/60)
-        Camera.CFrame   = Camera.CFrame:Lerp(targetCF, alpha)
+    -- PC и Mobile: одинаково двигаем камеру (Scriptable override)
+    pcall(function() Camera.CameraType = Enum.CameraType.Scriptable end)
+    local targetCF = CFrame.new(Camera.CFrame.Position, part.Position)
+    local alpha    = GetAimAlpha(1/60)
+    if alpha >= 1 then
+        Camera.CFrame = targetCF
     else
-        Mouse.TargetFilter = Character
+        Camera.CFrame = Camera.CFrame:Lerp(targetCF, alpha)
     end
 end
 
 Connections["RenderStepped"] = RunService.RenderStepped:Connect(function(dt)
-    if Cfg.SilentAim then DoSilentAim() end
+    if Cfg.SilentAim then
+        DoSilentAim()
+    else
+        -- Возвращаем камеру если SilentAim выключен
+        if Camera.CameraType == Enum.CameraType.Scriptable and not Cfg.Aimbot then
+            pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
+        end
+    end
 
     FOVCircle.Visible = (Cfg.Aimbot or Cfg.SilentAim) and Cfg.ShowFOVCircle
     if FOVCircle.Visible then
@@ -532,10 +572,13 @@ Connections["RenderStepped"] = RunService.RenderStepped:Connect(function(dt)
     UpdateESP()
 end)
 
--- Rivals fix: запускаем aimbot ПОСЛЕ обновления камеры игры (приоритет Camera+1)
--- Это не даёт игре перезаписать наш поворот камеры
-RunService:BindToRenderStep("NokoAimbot", Enum.RenderPriority.Camera.Value + 1, function(dt)
-    if Cfg.Aimbot then DoAimbot(dt) end
+-- Rivals fix: приоритет 201 (после Camera=200) — игра не успевает перезаписать CFrame
+RunService:BindToRenderStep("NokoAimbot", 201, function(dt)
+    if Cfg.Aimbot then
+        DoAimbot(dt)
+    else
+        SetAimActive(false)
+    end
 end)
 
 Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
@@ -620,6 +663,13 @@ CombatTab:CreateToggle({
     Flag = "SilentAim",
     Callback = function(v)
         Cfg.SilentAim = v
+        if not v then
+            pcall(function()
+                if not Cfg.Aimbot then
+                    Camera.CameraType = Enum.CameraType.Custom
+                end
+            end)
+        end
         Rayfield:Notify({ Title = "Silent Aim", Content = v and "ON" or "OFF", Duration = 2 })
     end,
 })
@@ -648,6 +698,7 @@ CombatTab:CreateToggle({
     CurrentValue = false, Flag = "Aimbot",
     Callback = function(v)
         Cfg.Aimbot = v
+        if not v then SetAimActive(false) end
         Rayfield:Notify({ Title = "Aimbot", Content = v and "ON" or "OFF", Duration = 2 })
     end,
 })
