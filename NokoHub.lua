@@ -46,6 +46,7 @@ local Cfg = {
     AimbotSmooth       = 8,
     AimbotFOV          = 150,
     AimbotPart         = "Head",
+    AimSpeedMode       = "Human",   -- "Human" | "Fast" | "Instant"
     ShowFOVCircle      = true,
     FOVCircleColor     = Color3.fromRGB(255, 255, 255),
 
@@ -148,7 +149,12 @@ local function GetClosest(fov)
     local best, bestDist = nil, fov
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
+            -- Rivals team check: не целимся в союзников
+            if LocalPlayer.Team and plr.Team and LocalPlayer.Team == plr.Team then
+                continue
+            end
             local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
+                      or plr.Character:FindFirstChild("Humanoid")
             local root = plr.Character:FindFirstChild("HumanoidRootPart")
             if hum and root and hum.Health > 0 then
                 local d = ScreenDist(root.Position)
@@ -461,16 +467,30 @@ for _, plr in ipairs(Players:GetPlayers()) do
     if plr ~= LocalPlayer then OnPlayerAdded(plr) end
 end
 
+-- Пресеты скорости аима
+local AimSpeedPresets = {
+    ["Human"]   = 3,   -- плавно как человек
+    ["Fast"]    = 12,  -- немного ускоренное
+    ["Instant"] = 0,   -- моментальный снап (0 = спец. режим)
+}
+
+local function GetAimAlpha(dt)
+    if Cfg.AimSpeedMode == "Instant" then
+        return 1
+    end
+    local spd = AimSpeedPresets[Cfg.AimSpeedMode] or Cfg.AimbotSmooth
+    return SmoothFactor(spd, dt)
+end
+
 local function DoAimbot(dt)
     local target = GetClosest(Cfg.AimbotFOV)
     AimTarget = target
     if not target then return end
     local part = ResolvePart(target, Cfg.AimbotPart)
     if not part then return end
-    local targetPos  = part.Position
-    local targetCF   = CFrame.new(Camera.CFrame.Position, targetPos)
-    local alpha      = SmoothFactor(Cfg.AimbotSmooth, dt)
-    Camera.CFrame    = Camera.CFrame:Lerp(targetCF, alpha)
+    local targetCF = CFrame.new(Camera.CFrame.Position, part.Position)
+    local alpha    = GetAimAlpha(dt)
+    Camera.CFrame  = Camera.CFrame:Lerp(targetCF, alpha)
 end
 
 local function DoSilentAim()
@@ -482,7 +502,7 @@ local function DoSilentAim()
     if not vis then return end
     if IsMobile then
         local targetCF  = CFrame.new(Camera.CFrame.Position, part.Position)
-        local alpha     = SmoothFactor(Cfg.SilentAimSmooth, 1/60)
+        local alpha     = GetAimAlpha(1/60)
         Camera.CFrame   = Camera.CFrame:Lerp(targetCF, alpha)
     else
         Mouse.TargetFilter = Character
@@ -510,6 +530,12 @@ Connections["RenderStepped"] = RunService.RenderStepped:Connect(function(dt)
         end
     end
     UpdateESP()
+end)
+
+-- Rivals fix: запускаем aimbot ПОСЛЕ обновления камеры игры (приоритет Camera+1)
+-- Это не даёт игре перезаписать наш поворот камеры
+RunService:BindToRenderStep("NokoAimbot", Enum.RenderPriority.Camera.Value + 1, function(dt)
+    if Cfg.Aimbot then DoAimbot(dt) end
 end)
 
 Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
@@ -542,8 +568,6 @@ Connections["Heartbeat"] = RunService.Heartbeat:Connect(function(dt)
             end
         end
     end
-
-    if Cfg.Aimbot then DoAimbot(dt) end
 
     if Cfg.AutoParry then
         for _, plr in ipairs(Players:GetPlayers()) do
@@ -644,6 +668,20 @@ CombatTab:CreateDropdown({
     Options = {"Head","UpperTorso","LowerTorso","Left Arm","Right Arm","Left Leg","Right Leg","Root"},
     CurrentOption = {"Head"}, MultipleOptions = false, Flag = "AimbotPart",
     Callback = function(v) Cfg.AimbotPart = v[1] end,
+})
+CombatTab:CreateDropdown({
+    Name = "🎯 Aim Speed",
+    Options = {"Human", "Fast", "Instant"},
+    CurrentOption = {"Human"}, MultipleOptions = false, Flag = "AimSpeedMode",
+    Callback = function(v)
+        Cfg.AimSpeedMode = v[1]
+        local labels = {
+            ["Human"]   = "🐢 Как человек — плавно",
+            ["Fast"]    = "⚡ Ускоренное — быстро",
+            ["Instant"] = "💥 Моментальный снап",
+        }
+        Rayfield:Notify({ Title = "Aim Speed", Content = labels[v[1]] or v[1], Duration = 2 })
+    end,
 })
 CombatTab:CreateToggle({
     Name = "Show FOV Circle",
@@ -913,6 +951,7 @@ MiscTab:CreateButton({
 
 game:BindToClose(function()
     FOVCircle:Remove()
+    pcall(function() RunService:UnbindFromRenderStep("NokoAimbot") end)
     for _, plr in ipairs(Players:GetPlayers()) do
         RemoveESP(plr)
         RemoveChams(plr)
