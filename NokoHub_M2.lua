@@ -198,11 +198,11 @@ local function GetMurderer()
     return nil
 end
 
--- GetMurdererTarget — через RemoteFunction (из txt)
+-- GetMurdererTarget — через RemoteFunction (как в оригинальном открытом скрипте)
 local function GetMurdererTarget()
-    local remote = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
-    if not remote then return nil, false end
-    local ok, data = pcall(function() return remote:InvokeServer() end)
+    local ok, data = pcall(function()
+        return ReplicatedStorage:FindFirstChild("GetPlayerData", true):InvokeServer()
+    end)
     if not ok or type(data) ~= "table" then return nil, false end
     for plrName, plrData in pairs(data) do
         if plrData.Role == "Murderer" then
@@ -1126,30 +1126,47 @@ MM2Tab:CreateToggle({
     end,
 })
 MM2Tab:CreateButton({
+    Name = "🔫  Grab Gun (GunDrop)",
+    Callback = function()
+        if not GetChar() then return end
+        local gun = workspace:FindFirstChild("GunDrop", true)
+        if gun then
+            if firetouchinterest then
+                firetouchinterest(RootPart, gun, 0)
+                firetouchinterest(RootPart, gun, 1)
+            else
+                gun.CFrame = RootPart.CFrame
+            end
+            Rayfield:Notify({ Title = "Grab Gun", Content = "Подобрал GunDrop!", Duration = 2 })
+        else
+            Rayfield:Notify({ Title = "Grab Gun", Content = "GunDrop не найден", Duration = 2 })
+        end
+    end,
+})
+MM2Tab:CreateButton({
     Name = "🔫  Steal Gun (from Sheriff)",
     Callback = function()
         if not GetChar() then return end
+        local bp = LocalPlayer:FindFirstChild("Backpack")
+        if not bp then return end
         for _, p in pairs(Players:GetPlayers()) do
             if p ~= LocalPlayer then
                 if p.Character and p.Character:FindFirstChild("Gun") then
                     p.Character:FindFirstChild("Gun").Parent = Character
-                    pcall(function() Humanoid:EquipTool(Character:FindFirstChild("Gun")) end)
-                    pcall(function() Humanoid:UnequipTools() end)
-                    Rayfield:Notify({ Title = "Steal Gun", Content = "Stolen from " .. p.Name, Duration = 2 })
+                    Humanoid:EquipTool(Character:FindFirstChild("Gun"))
+                    Humanoid:UnequipTools()
+                    Rayfield:Notify({ Title = "Steal Gun", Content = "Украл у " .. p.Name, Duration = 2 })
                     return
                 elseif p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Gun") then
-                    local bp = LocalPlayer:FindFirstChild("Backpack")
-                    if bp then
-                        p.Backpack:FindFirstChild("Gun").Parent = bp
-                        pcall(function() Humanoid:EquipTool(bp:FindFirstChild("Gun")) end)
-                        pcall(function() Humanoid:UnequipTools() end)
-                        Rayfield:Notify({ Title = "Steal Gun", Content = "Stolen from " .. p.Name, Duration = 2 })
-                        return
-                    end
+                    p.Backpack:FindFirstChild("Gun").Parent = bp
+                    Humanoid:EquipTool(bp:FindFirstChild("Gun"))
+                    Humanoid:UnequipTools()
+                    Rayfield:Notify({ Title = "Steal Gun", Content = "Украл у " .. p.Name, Duration = 2 })
+                    return
                 end
             end
         end
-        Rayfield:Notify({ Title = "Steal Gun", Content = "No gun found", Duration = 2 })
+        Rayfield:Notify({ Title = "Steal Gun", Content = "Пистолет не найден", Duration = 2 })
     end,
 })
 
@@ -1211,14 +1228,12 @@ CombatTab:CreateToggle({
                 btn.MouseButton1Click:Connect(function()
                     if not Character then return end
                     if Character:FindFirstChild("Gun") then
+                        -- Точно как в оригинале: (GetMurdererTarget()) — скобки берут только первое значение (позицию)
                         pcall(function()
-                            local targetPos = GetMurdererTarget()
-                            if targetPos then
-                                Character.Gun.KnifeLocal.CreateBeam.RemoteFunction:InvokeServer(1, targetPos, "AH2")
-                            end
+                            Character.Gun.KnifeLocal.CreateBeam.RemoteFunction:InvokeServer(1, (GetMurdererTarget()), "AH2")
                         end)
                     else
-                        Rayfield:Notify({ Title = "Shoot Murder", Content = "No gun in hand!", Duration = 2 })
+                        Rayfield:Notify({ Title = "Shoot Murder", Content = "Нет пистолета в руках!", Duration = 2 })
                     end
                 end)
             end
