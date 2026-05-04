@@ -143,15 +143,66 @@ local function getClosestTarget(fov, bone, teamCheck)
 	return closest
 end
 
--- ─── Silent Aim / Magic Bullet hook (namecall) ───────────────────
--- Only hooks FireServer for aim redirection — no kick blocking
+-- ─── BAC Alpha-3B / Anti-Kick protection ─────────────────────────
+local BAC_KEYWORDS = {
+	"bac","alpha","anticheat","anti_cheat","banned",
+	"ban","punish","flag","suspend","blacklist",
+}
+local function isBacRemote(name)
+	local low = name:lower()
+	for _, kw in ipairs(BAC_KEYWORDS) do
+		if low:find(kw, 1, true) then return true end
+	end
+	return false
+end
 pcall(function()
-	local mt      = getrawmetatable(game)
-	local oldNC   = mt.__namecall
+	for _, d in pairs(game:GetDescendants()) do
+		pcall(function()
+			if d:IsA("RemoteEvent") and isBacRemote(d.Name) then
+				d.OnClientEvent:Connect(function()
+					warn("[AstraHub] BAC OnClientEvent blocked: " .. d.Name)
+				end)
+			end
+		end)
+	end
+end)
+game.DescendantAdded:Connect(function(d)
+	task.wait(0.05)
+	pcall(function()
+		if d:IsA("RemoteEvent") and isBacRemote(d.Name) then
+			d.OnClientEvent:Connect(function()
+				warn("[AstraHub] BAC OnClientEvent blocked (new): " .. d.Name)
+			end)
+		end
+	end)
+end)
+pcall(function()
+	LP.Kick = function() warn("[AstraHub] LP.Kick fallback blocked") end
+end)
+
+-- ─── Namecall hook: Anti-Kick + BAC + Silent Aim + Magic Bullet ──
+local _hookOk = pcall(function()
+	local mt    = getrawmetatable(game)
+	local oldNC = mt.__namecall
 	setreadonly(mt, false)
 	mt.__namecall = newcclosure(function(self, ...)
 		local method = getnamecallmethod()
 
+		-- Block :Kick()
+		if method == "Kick" and typeof(self) == "Instance" and self:IsA("Player") then
+			warn("[AstraHub] :Kick() blocked")
+			return
+		end
+
+		-- Block BAC FireServer/InvokeServer
+		if (method == "FireServer" or method == "InvokeServer")
+			and typeof(self) == "Instance"
+			and isBacRemote(self.Name) then
+			warn("[AstraHub] BAC FireServer blocked: " .. self.Name)
+			return
+		end
+
+		-- Silent Aim + Magic Bullet
 		if (method == "FireServer" or method == "InvokeServer")
 			and (S.SilentAim or S.MagicBullet) then
 
@@ -199,6 +250,10 @@ pcall(function()
 	end)
 	setreadonly(mt, true)
 end)
+if not _hookOk then
+	warn("[AstraHub] Namecall hook failed — executor may not support it")
+end
+
 
 -- ─── Mobile touch aim trigger ────────────────────────────────────
 if IS_MOBILE then
@@ -809,6 +864,13 @@ SetTab:CreateParagraph({
 		or  "Aimbot: hold RMB. Rayfield: press Insert."
 })
 
+SetTab:CreateSection("Protection")
+SetTab:CreateParagraph({
+	Title   = "Anti-Kick / BAC Alpha-3B",
+	Content = _hookOk
+		and "Active — :Kick() blocked, BAC remotes hooked, LP.Kick overridden"
+		or  "Partial — LP.Kick overridden, BAC remote scan active (executor lacks full hook)",
+})
 SetTab:CreateSection("Actions")
 SetTab:CreateButton({ Name="Disable ALL", Callback=function()
 	S.Aimbot=false; S.SilentAim=false; S.MagicBullet=false
