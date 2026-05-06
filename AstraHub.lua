@@ -413,12 +413,11 @@ end)
 Players.PlayerRemoving:Connect(function(p) clearESP(p); clearChams(p) end)
 
 if IS_MOBILE then
-	UserInputService.TouchBegan:Connect(function(input, gp)
-		if gp then return end
-		State.TouchStartPos = input.Position
+	UserInputService.InputBegan:Connect(function(inp, gp)
+		if gp or inp.UserInputType ~= Enum.UserInputType.Touch then return end
+		State.TouchStartPos = inp.Position
 		State.TouchStartTime = tick()
-		-- Double tap detection for Aimbot
-		if tick() - State.TouchStartTime < 0.3 then
+		if C.Aimbot then
 			if C.OnePressAim then
 				State.Aiming = not State.Aiming
 			else
@@ -427,33 +426,24 @@ if IS_MOBILE then
 		end
 	end)
 
-	UserInputService.TouchMoved:Connect(function(input, gp)
-		if gp then return end
-		if C.Aimbot and C.AimMode == "Camera" then
-			if not State.Aiming and not C.OnePressAim then
-				State.Aiming = true
+	UserInputService.InputEnded:Connect(function(inp, gp)
+		if gp or inp.UserInputType ~= Enum.UserInputType.Touch then return end
+		local delta = (inp.Position - State.TouchStartPos).Magnitude
+		local timeDelta = tick() - State.TouchStartTime
+		
+		if delta > 80 then
+			if inp.Position.X > State.TouchStartPos.X + 80 then
+				if C.SpinBot then
+					if C.OnePressSpinB then State.Spinning = not State.Spinning else State.Spinning = true end
+				end
+			elseif inp.Position.X < State.TouchStartPos.X - 80 then
+				if C.TriggerBot then
+					if C.OnePressTrigg then State.Triggering = not State.Triggering else State.Triggering = true end
+				end
 			end
-		end
-	end)
-
-	UserInputService.TouchEnded:Connect(function(input, gp)
-		if gp then return end
-		local delta = (input.Position - State.TouchStartPos).Magnitude
-		-- Swipe detection
-		if delta > 50 then
-			if input.Position.X > State.TouchStartPos.X + 50 then
-				-- Swipe right = SpinBot
-				if C.OnePressSpinB then State.Spinning = not State.Spinning else State.Spinning = true end
-			elseif input.Position.X < State.TouchStartPos.X - 50 then
-				-- Swipe left = TriggerBot
-				if C.OnePressTrigg then State.Triggering = not State.Triggering else State.Triggering = true end
-			end
-		else
-			-- Tap
-			if not C.OnePressAim and C.Aimbot then
-				State.Aiming = false
-				State.AimTarget = nil
-			end
+		elseif timeDelta > 0.5 and not C.OnePressAim then
+			State.Aiming = false
+			State.AimTarget = nil
 		end
 	end)
 end
