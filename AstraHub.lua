@@ -919,7 +919,7 @@ MT:CreateButton({Name="Destroy Script", Callback=function()
 end})
 
 Rayfield:Notify({
-	Title="Astra Hub v2.0",
+	Title="Astra Hub v1.1",
 	Content=(IS_MOBILE and "Mobile: Double tap = Aim  |  Swipe right = Spin  |  Swipe left = Trigger" or "PC: RMB = Aim  |  Q = Spin  |  E = Trigger"),
 	Duration=6,
 })
