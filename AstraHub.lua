@@ -1,47 +1,45 @@
--- Astra Hub | Complete Edition
-
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+-- Astra Hub
+local ok, Rayfield = pcall(function()
+	return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+end)
+if not ok then warn("[AstraHub] Rayfield load failed") return end
 
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService     = game:GetService("TweenService")
 local VirtualUser      = game:GetService("VirtualUser")
 local Camera           = workspace.CurrentCamera
 local LP               = Players.LocalPlayer
 local Mouse            = LP:GetMouse()
 
-local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-
--- ══════════════════════════════════════════════════════
+-- ═══════════════════════════════════
 -- CONFIG
--- ══════════════════════════════════════════════════════
+-- ═══════════════════════════════════
 local C = {
-	Aimbot          = false,
-	AimMode         = "Camera",
-	AimPart         = "Head",
-	AimKey          = Enum.UserInputType.MouseButton2,
-	OnePressAim     = false,
-	TeamCheck       = true,
-	AliveCheck      = true,
-	WallCheck       = false,
-	FoVCheck        = true,
-	FoVRadius       = 150,
-	ShowFoV         = true,
-	UseSmoothness   = true,
-	Smoothness      = 15,
-	UseOffset       = false,
-	StaticOffset    = 0,
-	DynamicOffset   = 0,
-	UseNoise        = false,
-	NoiseStrength   = 20,
+	-- Aimbot
+	Aimbot        = false,
+	AimMode       = "Camera",  -- "Camera" | "Silent"
+	AimPart       = "Head",
+	FoVRadius     = 150,
+	FoVCheck      = true,
+	ShowFoV       = true,
+	TeamCheck     = true,
+	AliveCheck    = true,
+	WallCheck     = false,
+	Smoothness    = 0.15,
+	UseOffset     = false,
+	OffsetY       = 0,
+	UseNoise      = false,
+	NoiseStr      = 0.05,
+	OnePressAim   = false,
 
-	SilentMouseHit    = true,
-	SilentMouseTarget = true,
-	SilentGetMouseLoc = true,
-	SilentRaycast     = true,
-	SilentFindPart    = true,
+	-- Silent methods
+	SilHit      = true,
+	SilTarget   = true,
+	SilMouseLoc = true,
+	SilRaycast  = true,
 
+	-- ESP
 	ESP           = false,
 	ESPEnemies    = true,
 	ESPTeammates  = true,
@@ -53,325 +51,264 @@ local C = {
 	ESPSkeleton   = false,
 	ESPHeadDot    = true,
 	ESPMaxDist    = 1000,
-	ESPEnemyColor = Color3.fromRGB(255, 60, 60),
-	ESPTeamColor  = Color3.fromRGB(60, 180, 255),
+	ESPEnemyCol   = Color3.fromRGB(255, 60, 60),
+	ESPTeamCol    = Color3.fromRGB(60, 180, 255),
 
+	-- HitBox
 	HitBox          = false,
 	HitBoxSize      = 5,
 	HitBoxEnemyOnly = true,
 
-	Chams           = false,
-	ChamsEnemyColor = Color3.fromRGB(255, 50, 50),
-	ChamsTeamColor  = Color3.fromRGB(50, 120, 255),
-	ChamsTransp     = 0.4,
+	-- Chams
+	Chams          = false,
+	ChamsEnemyCol  = Color3.fromRGB(255, 50, 50),
+	ChamsTeamCol   = Color3.fromRGB(50, 120, 255),
+	ChamsTransp    = 0.4,
 
-	InfAmmo  = false,
-	NoSpread = false,
+	-- Combat
+	InfAmmo   = false,
+	NoSpread  = false,
 
-	SpinBot         = false,
-	SpinVelocity    = 50,
-	OnePressSpinBot = false,
+	-- SpinBot
+	SpinBot       = false,
+	SpinSpeed     = 50,
+	OnePressSpinB = false,
 
-	TriggerBot      = false,
-	TriggerDelay    = 0.05,
-	TriggerChance   = 100,
-	SmartTrigger    = true,
-	OnePressTrigger = false,
+	-- TriggerBot
+	TriggerBot    = false,
+	TrigDelay     = 0.06,
+	TrigChance    = 100,
+	TrigTeamCheck = true,
+	OnePressTrigg = false,
 
+	-- Camera FOV
 	CustomFOV  = false,
 	FOVValue   = 70,
-	DefaultFOV = Camera.FieldOfView,
+	OrigFOV    = Camera.FieldOfView,
 
+	-- Anti-AFK
 	AntiAFK = false,
 }
 
--- ══════════════════════════════════════════════════════
+-- ═══════════════════════════════════
 -- STATE
--- ══════════════════════════════════════════════════════
-local Aiming        = false
-local Spinning      = false
-local Triggering    = false
-local Target        = nil
-local CurrentTween  = nil
-local MouseSens     = UserInputService.MouseDeltaSensitivity
-local WindowActive  = true
+-- ═══════════════════════════════════
+local Aiming     = false
+local Spinning   = false
+local Triggering = false
+local AimTarget  = nil
 
--- ══════════════════════════════════════════════════════
--- HELPERS
--- ══════════════════════════════════════════════════════
+-- ═══════════════════════════════════
+-- UTILS
+-- ═══════════════════════════════════
 local function isTeammate(p)
 	if p == LP then return true end
-	return LP.Team and p.Team and p.Team == LP.Team
+	if not LP.Team then return false end
+	return p.Team == LP.Team
 end
 
-local function getScreenPos(world)
-	local v, on = Camera:WorldToViewportPoint(world)
+local function getChar(p)
+	return p.Character
+end
+
+local function getHum(p)
+	local c = getChar(p)
+	return c and c:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot(p)
+	local c = getChar(p)
+	return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function getPart(p, name)
+	local c = getChar(p)
+	if not c then return nil end
+	return c:FindFirstChild(name) or c:FindFirstChild("HumanoidRootPart")
+end
+
+local function toScreen(v3)
+	local v, on = Camera:WorldToViewportPoint(v3)
 	return Vector2.new(v.X, v.Y), on
 end
 
-local function applyNoise(str)
-	local f = str / 100
-	return Vector3.new(
-		math.random() * f * 2 - f,
-		math.random() * f * 2 - f,
-		math.random() * f * 2 - f
-	)
-end
-
-local function newDraw(t, props)
-	local d = Drawing.new(t)
-	for k, v in pairs(props) do d[k] = v end
-	return d
-end
-
--- ══════════════════════════════════════════════════════
--- IsReady — core target validator
--- ══════════════════════════════════════════════════════
-local function IsReady(char)
-	if not char then return false end
-	local hum     = char:FindFirstChildWhichIsA("Humanoid")
-	local aimPart = char:FindFirstChild(C.AimPart)
-	local myChar  = LP.Character
-	local myPart  = myChar and myChar:FindFirstChild(C.AimPart)
-	local p       = Players:GetPlayerFromCharacter(char)
-
-	if not hum or not aimPart or not aimPart:IsA("BasePart") then return false end
-	if not myPart or not p or p == LP then return false end
-	if C.AliveCheck and hum.Health <= 0 then return false end
+local function isValidTarget(p)
+	if p == LP then return false end
 	if C.TeamCheck and isTeammate(p) then return false end
-
+	local hum = getHum(p)
+	if C.AliveCheck and (not hum or hum.Health <= 0) then return false end
+	if not hum then return false end
 	if C.WallCheck then
-		local dir = aimPart.Position - myPart.Position
-		local rp  = RaycastParams.new()
-		rp.FilterType = Enum.RaycastFilterType.Exclude
-		rp.FilterDescendantsInstances = { myChar }
-		rp.IgnoreWater = true
-		local hit = workspace:Raycast(myPart.Position, dir, rp)
-		if not hit or not hit.Instance or not hit.Instance:IsDescendantOf(char) then
-			return false
+		local myRoot = getRoot(LP)
+		local tRoot  = getRoot(p)
+		if myRoot and tRoot then
+			local rp = RaycastParams.new()
+			rp.FilterType = Enum.RaycastFilterType.Exclude
+			rp.FilterDescendantsInstances = { LP.Character }
+			rp.IgnoreWater = true
+			local dir = tRoot.Position - myRoot.Position
+			local result = workspace:Raycast(myRoot.Position, dir, rp)
+			if not result then return false end
+			if not result.Instance:IsDescendantOf(getChar(p)) then return false end
 		end
 	end
-
-	local offset = Vector3.zero
-	if C.UseOffset then
-		offset = Vector3.new(0, C.StaticOffset / 10, 0)
-			+ hum.MoveDirection * (C.DynamicOffset / 10)
-	end
-
-	local noiseV  = C.UseNoise and applyNoise(C.NoiseStrength) or Vector3.zero
-	local finalPos = aimPart.Position + offset + noiseV
-	local sp, on  = getScreenPos(finalPos)
-	local dist    = (finalPos - myPart.Position).Magnitude
-	local hitCF   = CFrame.new(finalPos)
-
-	return true, char, sp, on, finalPos, dist, hitCF, aimPart
+	return true
 end
 
--- ══════════════════════════════════════════════════════
--- TARGET SELECTION
--- ══════════════════════════════════════════════════════
-local function findTarget()
-	local mPos = Vector2.new(Mouse.X, Mouse.Y)
-	local best, bestDist = nil, C.FoVCheck and C.FoVRadius or math.huge
+local function getAimPos(p)
+	local part = getPart(p, C.AimPart)
+	if not part then return nil end
+	local pos = part.Position
+	if C.UseOffset then pos = pos + Vector3.new(0, C.OffsetY, 0) end
+	if C.UseNoise  then
+		local n = C.NoiseStr
+		pos = pos + Vector3.new(
+			math.random() * n * 2 - n,
+			math.random() * n * 2 - n,
+			math.random() * n * 2 - n
+		)
+	end
+	return pos
+end
+
+local function findClosest()
+	local center = Vector2.new(Mouse.X, Mouse.Y)
+	local maxD   = C.FoVCheck and C.FoVRadius or math.huge
+	local best, bestD = nil, maxD
 	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= LP then
-			local ok, _, sp, on = IsReady(p.Character)
-			if ok and on then
-				local d = (mPos - sp).Magnitude
-				if d < bestDist then bestDist = d; best = p.Character end
+		if isValidTarget(p) then
+			local pos = getAimPos(p)
+			if pos then
+				local sp, on = toScreen(pos)
+				if on then
+					local d = (center - sp).Magnitude
+					if d < bestD then bestD = d; best = p end
+				end
 			end
 		end
 	end
 	return best
 end
 
--- ══════════════════════════════════════════════════════
--- RESET AIM
--- ══════════════════════════════════════════════════════
-local function resetAim()
-	Aiming = false; Target = nil
-	if CurrentTween then CurrentTween:Cancel(); CurrentTween = nil end
-	UserInputService.MouseDeltaSensitivity = MouseSens
+-- ═══════════════════════════════════
+-- SILENT AIM — getrawmetatable hook
+-- ═══════════════════════════════════
+local hookActive = false
+local function getSilentPos()
+	if not AimTarget or not isValidTarget(AimTarget) then return nil, nil end
+	local pos  = getAimPos(AimTarget)
+	if not pos then return nil, nil end
+	local sp, on = toScreen(pos)
+	return pos, on and sp or nil
 end
 
--- ══════════════════════════════════════════════════════
--- SILENT AIM HOOKS
--- ══════════════════════════════════════════════════════
-local silentIndexOk = pcall(function()
-	assert(hookmetamethod)
-	local old = hookmetamethod(game, "__index", newcclosure(function(self, key)
-		if C.Aimbot and C.AimMode == "Silent" and Aiming and self == Mouse then
-			local ok, _, sp, on, worldPos, _, hitCF, aimPart = IsReady(Target)
-			if ok and on then
-				if C.SilentMouseHit    and (key == "Hit"    or key == "hit")    then return hitCF    end
-				if C.SilentMouseTarget and (key == "Target" or key == "target") then return aimPart  end
-				if C.SilentMouseHit    and key == "X"       then return sp.X end
-				if C.SilentMouseHit    and key == "Y"       then return sp.Y end
-				if key == "UnitRay" then
-					return Ray.new(Camera.CFrame.Position, (worldPos - Camera.CFrame.Position).Unit)
-				end
-			end
-		end
-		return old(self, key)
-	end))
-end)
-
-local silentCallOk = pcall(function()
-	assert(hookmetamethod)
-	local old = hookmetamethod(game, "__namecall", newcclosure(function(...)
-		local args   = { ... }
-		local self   = args[1]
+local hookOk = pcall(function()
+	local mt = getrawmetatable(game)
+	setreadonly(mt, false)
+	local oldNamecall = mt.__namecall
+	mt.__namecall = newcclosure(function(self, ...)
 		local method = getnamecallmethod()
-
+		-- only intercept when silent aim is active
 		if C.Aimbot and C.AimMode == "Silent" and Aiming then
-			local ok, _, _, on, worldPos, dist = IsReady(Target)
-			if ok and on then
-				if C.SilentGetMouseLoc and self == UserInputService
-					and (method == "GetMouseLocation" or method == "getMouseLocation") then
-					local sp = getScreenPos(worldPos)
-					return Vector2.new(sp.X, sp.Y)
-				end
-
-				local myPart = LP.Character and LP.Character:FindFirstChild(C.AimPart)
-				if myPart then
-					local dir = (worldPos - myPart.Position).Unit * dist
-
-					if C.SilentRaycast and self == workspace
-						and (method == "Raycast" or method == "raycast")
-						and typeof(args[2]) == "Vector3" and typeof(args[3]) == "Vector3" then
-						local newArgs = table.clone(args)
-						newArgs[3] = dir
-						return old(table.unpack(newArgs))
+			local worldPos, sp = getSilentPos()
+			if worldPos then
+				local myRoot = getRoot(LP)
+				if myRoot then
+					-- UserInputService:GetMouseLocation()
+					if C.SilMouseLoc and self == UserInputService
+						and method == "GetMouseLocation" then
+						return Vector2.new(sp.X, sp.Y)
 					end
-
-					if C.SilentFindPart and self == workspace
-						and method:find("FindPartOnRay")
-						and typeof(args[2]) == "userdata" then
-						local newArgs = table.clone(args)
-						newArgs[2] = Ray.new(args[2].Origin, dir)
-						return old(table.unpack(newArgs))
+					-- workspace:Raycast(origin, dir, params)
+					if C.SilRaycast and self == workspace and method == "Raycast" then
+						local args = {...}
+						if typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
+							local newDir = (worldPos - args[1])
+							return oldNamecall(workspace, args[1], newDir, args[3])
+						end
+					end
+					-- FindPartOnRay variants
+					if C.SilRaycast and self == workspace and method:find("FindPartOnRay") then
+						local args = {...}
+						if typeof(args[1]) == "userdata" then
+							local newRay = Ray.new(args[1].Origin, (worldPos - args[1].Origin))
+							return oldNamecall(workspace, newRay, table.unpack(args, 2))
+						end
 					end
 				end
 			end
 		end
-		return old(...)
-	end))
-end)
-
--- ══════════════════════════════════════════════════════
--- INPUT
--- ══════════════════════════════════════════════════════
-UserInputService.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	local t = input.UserInputType
-	local k = input.KeyCode
-
-	if C.Aimbot and (t == C.AimKey or k == C.AimKey) then
-		if C.OnePressAim then
-			if Aiming then resetAim() else Aiming = true end
-		else
-			Aiming = true
-		end
-	end
-
-	if C.SpinBot and k == Enum.KeyCode.Q then
-		if C.OnePressSpinBot then Spinning = not Spinning else Spinning = true end
-	end
-
-	if C.TriggerBot and k == Enum.KeyCode.E then
-		if C.OnePressTrigger then Triggering = not Triggering else Triggering = true end
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	local t = input.UserInputType
-	local k = input.KeyCode
-	if not C.OnePressAim     and (t == C.AimKey or k == C.AimKey) then resetAim() end
-	if not C.OnePressSpinBot and k == Enum.KeyCode.Q then Spinning   = false end
-	if not C.OnePressTrigger and k == Enum.KeyCode.E then Triggering = false end
-end)
-
-UserInputService.WindowFocused:Connect(function() WindowActive = true end)
-UserInputService.WindowFocusReleased:Connect(function()
-	WindowActive = false; resetAim(); Spinning = false; Triggering = false
-end)
-
-UserInputService:GetPropertyChangedSignal("MouseDeltaSensitivity"):Connect(function()
-	if not Aiming then MouseSens = UserInputService.MouseDeltaSensitivity end
-end)
-
--- ══════════════════════════════════════════════════════
--- ANTI-AFK
--- ══════════════════════════════════════════════════════
-LP.Idled:Connect(function()
-	if not C.AntiAFK then return end
-	VirtualUser:Button2Down(Vector2.new(0, 0), Camera.CFrame)
-	task.wait(0.1)
-	VirtualUser:Button2Up(Vector2.new(0, 0), Camera.CFrame)
-end)
-
--- ══════════════════════════════════════════════════════
--- TRIGGERBOT LOOP
--- ══════════════════════════════════════════════════════
-task.spawn(function()
-	while true do
-		task.wait(C.TriggerDelay)
-		if C.TriggerBot and Triggering then
-			local hit = Mouse.Target
-			if hit then
-				local p = Players:GetPlayerFromCharacter(hit.Parent)
-				if p and p ~= LP then
-					local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
-					local valid = hum and hum.Health > 0
-					if valid and C.TeamCheck and isTeammate(p) then valid = false end
-					if valid and C.SmartTrigger then
-						local ok = IsReady(p.Character)
-						if not ok then valid = false end
-					end
-					if valid and math.random(1, 100) <= C.TriggerChance then
-						pcall(mouse1click)
-					end
+		return oldNamecall(self, ...)
+	end)
+	-- Mouse.Hit / Mouse.Target via __index hook
+	local oldIndex = mt.__index
+	mt.__index = newcclosure(function(self, key)
+		if C.Aimbot and C.AimMode == "Silent" and Aiming and self == Mouse then
+			local worldPos, sp = getSilentPos()
+			if worldPos and sp then
+				if C.SilHit and (key == "Hit" or key == "hit") then
+					return CFrame.new(worldPos)
 				end
+				if C.SilTarget and (key == "Target" or key == "target") then
+					local part = AimTarget and getPart(AimTarget, C.AimPart)
+					return part
+				end
+				if C.SilHit and key == "X" then return sp.X end
+				if C.SilHit and key == "Y" then return sp.Y end
 			end
 		end
-	end
+		return oldIndex(self, key)
+	end)
+	setreadonly(mt, true)
+	hookActive = true
 end)
 
--- ══════════════════════════════════════════════════════
--- ESP SYSTEM
--- ══════════════════════════════════════════════════════
-local SKEL_PAIRS = {
+-- ═══════════════════════════════════
+-- DRAWING HELPERS
+-- ═══════════════════════════════════
+local function nd(t, p)
+	local d = Drawing.new(t)
+	for k, v in pairs(p) do d[k] = v end
+	return d
+end
+
+local fovDraw = nd("Circle", {
+	Visible=false, Color=Color3.fromRGB(255,255,255),
+	Thickness=1.5, Filled=false, NumSides=64,
+})
+
+local SKEL = {
 	{"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
 	{"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"},
 	{"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},
 	{"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},
 	{"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
 }
-local CORNER_KEYS = {"cTL","cTL2","cTR","cTR2","cBL","cBL2","cBR","cBR2"}
+local CKEYS = {"cTL","cTL2","cTR","cTR2","cBL","cBL2","cBR","cBR2"}
 
 local ESPPool   = {}
 local ChamsPool = {}
 
 local function makeESP(p)
 	local o = {}
-	o.fill     = newDraw("Square",{Transparency=0.25, Filled=true,  Visible=false, Thickness=0,   Color=Color3.fromRGB(255,60,60)})
-	o.box      = newDraw("Square",{Thickness=1.5,     Filled=false, Visible=false,               Color=Color3.fromRGB(255,60,60)})
-	for _, n in ipairs(CORNER_KEYS) do
-		o[n] = newDraw("Line",{Thickness=2.5, Visible=false, Color=Color3.fromRGB(255,255,255)})
+	o.fill  = nd("Square",{Transparency=0.25,Filled=true,Visible=false,Thickness=0,Color=Color3.fromRGB(255,60,60)})
+	o.box   = nd("Square",{Thickness=1.5,Filled=false,Visible=false,Color=Color3.fromRGB(255,60,60)})
+	for _, n in ipairs(CKEYS) do
+		o[n] = nd("Line",{Thickness=2.5,Visible=false,Color=Color3.fromRGB(255,255,255)})
 	end
-	o.hpOutline = newDraw("Square",{Color=Color3.fromRGB(0,0,0),      Filled=false, Visible=false, Thickness=1})
-	o.hpBg      = newDraw("Square",{Color=Color3.fromRGB(15,15,15),   Filled=true,  Visible=false, Thickness=0})
-	o.hpBar     = newDraw("Square",{Color=Color3.fromRGB(50,220,50),  Filled=true,  Visible=false, Thickness=0})
-	o.hpText    = newDraw("Text",  {Color=Color3.fromRGB(255,255,255),Size=10, Outline=true, OutlineColor=Color3.fromRGB(0,0,0), Visible=false, Center=true, Font=2})
-	o.nameLbl   = newDraw("Text",  {Color=Color3.fromRGB(255,255,255),Size=13, Outline=true, OutlineColor=Color3.fromRGB(0,0,0), Visible=false, Center=true, Font=2})
-	o.tagLbl    = newDraw("Text",  {Color=Color3.fromRGB(100,200,255),Size=11, Outline=true, OutlineColor=Color3.fromRGB(0,0,0), Visible=false, Center=true, Font=2})
-	o.distLbl   = newDraw("Text",  {Color=Color3.fromRGB(180,180,180),Size=11, Outline=true, OutlineColor=Color3.fromRGB(0,0,0), Visible=false, Center=true, Font=2})
-	o.tracer    = newDraw("Line",  {Color=Color3.fromRGB(255,60,60),  Thickness=1, Visible=false})
-	o.headDot   = newDraw("Circle",{Color=Color3.fromRGB(255,255,255),Thickness=1.5, Filled=false, NumSides=32, Radius=4, Visible=false})
-	o.headFill  = newDraw("Circle",{Transparency=0.5, Filled=true, NumSides=32, Radius=4, Visible=false, Color=Color3.fromRGB(255,60,60)})
-	o.skel      = {}
-	for _ = 1, #SKEL_PAIRS do
-		table.insert(o.skel, newDraw("Line",{Color=Color3.fromRGB(255,255,255), Thickness=1, Visible=false}))
+	o.hpOut = nd("Square",{Color=Color3.fromRGB(0,0,0),Filled=false,Visible=false,Thickness=1})
+	o.hpBg  = nd("Square",{Color=Color3.fromRGB(15,15,15),Filled=true,Visible=false,Thickness=0})
+	o.hpBar = nd("Square",{Color=Color3.fromRGB(50,220,50),Filled=true,Visible=false,Thickness=0})
+	o.hpTxt = nd("Text",{Color=Color3.fromRGB(255,255,255),Size=10,Outline=true,OutlineColor=Color3.fromRGB(0,0,0),Visible=false,Center=true,Font=2})
+	o.name  = nd("Text",{Color=Color3.fromRGB(255,255,255),Size=13,Outline=true,OutlineColor=Color3.fromRGB(0,0,0),Visible=false,Center=true,Font=2})
+	o.tag   = nd("Text",{Color=Color3.fromRGB(100,200,255),Size=11,Outline=true,OutlineColor=Color3.fromRGB(0,0,0),Visible=false,Center=true,Font=2})
+	o.dist  = nd("Text",{Color=Color3.fromRGB(180,180,180),Size=11,Outline=true,OutlineColor=Color3.fromRGB(0,0,0),Visible=false,Center=true,Font=2})
+	o.trace = nd("Line",{Color=Color3.fromRGB(255,60,60),Thickness=1,Visible=false})
+	o.hdot  = nd("Circle",{Color=Color3.fromRGB(255,255,255),Thickness=1.5,Filled=false,NumSides=32,Radius=4,Visible=false})
+	o.hfill = nd("Circle",{Transparency=0.5,Filled=true,NumSides=32,Radius=4,Visible=false,Color=Color3.fromRGB(255,60,60)})
+	o.skel  = {}
+	for _ = 1, #SKEL do
+		table.insert(o.skel, nd("Line",{Color=Color3.fromRGB(255,255,255),Thickness=1,Visible=false}))
 	end
 	ESPPool[p] = o
 end
@@ -392,35 +329,25 @@ local function hideESP(o)
 	end
 end
 
-local function drawCorners(o, l, t, w, h, color)
-	local cl = math.min(w, h) * 0.22
-	local r, b = l+w, t+h
-	local lines = {
-		{o.cTL,  Vector2.new(l,t), Vector2.new(l+cl,t)},
-		{o.cTL2, Vector2.new(l,t), Vector2.new(l,t+cl)},
-		{o.cTR,  Vector2.new(r,t), Vector2.new(r-cl,t)},
-		{o.cTR2, Vector2.new(r,t), Vector2.new(r,t+cl)},
-		{o.cBL,  Vector2.new(l,b), Vector2.new(l+cl,b)},
-		{o.cBL2, Vector2.new(l,b), Vector2.new(l,b-cl)},
-		{o.cBR,  Vector2.new(r,b), Vector2.new(r-cl,b)},
-		{o.cBR2, Vector2.new(r,b), Vector2.new(r,b-cl)},
+local function corners(o, l, t, w, h, col)
+	local cl = math.min(w,h)*0.22; local r,b = l+w, t+h
+	local s = {
+		{o.cTL, Vector2.new(l,t),Vector2.new(l+cl,t)}, {o.cTL2,Vector2.new(l,t),Vector2.new(l,t+cl)},
+		{o.cTR, Vector2.new(r,t),Vector2.new(r-cl,t)}, {o.cTR2,Vector2.new(r,t),Vector2.new(r,t+cl)},
+		{o.cBL, Vector2.new(l,b),Vector2.new(l+cl,b)}, {o.cBL2,Vector2.new(l,b),Vector2.new(l,b-cl)},
+		{o.cBR, Vector2.new(r,b),Vector2.new(r-cl,b)}, {o.cBR2,Vector2.new(r,b),Vector2.new(r,b-cl)},
 	}
-	for _, c in ipairs(lines) do
-		c[1].From=c[2]; c[1].To=c[3]; c[1].Color=color; c[1].Visible=true
-	end
+	for _, c in ipairs(s) do c[1].From=c[2];c[1].To=c[3];c[1].Color=col;c[1].Visible=true end
 end
 
--- ══════════════════════════════════════════════════════
--- CHAMS
--- ══════════════════════════════════════════════════════
 local function applyChams(p)
-	local char = p.Character; if not char then return end
+	local char = getChar(p); if not char then return end
 	ChamsPool[p] = {}
-	local col = isTeammate(p) and C.ChamsTeamColor or C.ChamsEnemyColor
+	local col = isTeammate(p) and C.ChamsTeamCol or C.ChamsEnemyCol
 	for _, v in ipairs(char:GetDescendants()) do
 		if v:IsA("BasePart") then
-			local orig = {Material=v.Material, Color=v.Color, Transparency=v.Transparency}
-			table.insert(ChamsPool[p], {part=v, orig=orig})
+			local orig = {M=v.Material,C=v.Color,T=v.Transparency}
+			table.insert(ChamsPool[p], {part=v,orig=orig})
 			v.Material=Enum.Material.Neon; v.Color=col; v.Transparency=C.ChamsTransp
 		end
 	end
@@ -428,12 +355,8 @@ end
 
 local function clearChams(p)
 	local list = ChamsPool[p]; if not list then return end
-	for _, info in ipairs(list) do
-		pcall(function()
-			info.part.Material    = info.orig.Material
-			info.part.Color       = info.orig.Color
-			info.part.Transparency = info.orig.Transparency
-		end)
+	for _, i in ipairs(list) do
+		pcall(function() i.part.Material=i.orig.M; i.part.Color=i.orig.C; i.part.Transparency=i.orig.T end)
 	end
 	ChamsPool[p] = nil
 end
@@ -441,471 +364,459 @@ end
 local function refreshChams()
 	for _, p in ipairs(Players:GetPlayers()) do
 		clearChams(p)
-		local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
-		if C.Chams and p ~= LP and hum and hum.Health > 0 then applyChams(p) end
+		local hum = getHum(p)
+		if C.Chams and p~=LP and hum and hum.Health>0 then applyChams(p) end
 	end
 end
 
--- Player hooks
+-- player hooks
 for _, p in ipairs(Players:GetPlayers()) do
-	if p ~= LP then
+	if p~=LP then
 		makeESP(p)
-		p.CharacterAdded:Connect(function()
-			task.wait(0.5)
-			if C.Chams then clearChams(p); applyChams(p) end
-		end)
+		p.CharacterAdded:Connect(function() task.wait(0.5); if C.Chams then clearChams(p);applyChams(p) end end)
 	end
 end
 Players.PlayerAdded:Connect(function(p)
 	task.wait(0.1); makeESP(p)
-	p.CharacterAdded:Connect(function()
-		task.wait(0.5)
-		if C.Chams then clearChams(p); applyChams(p) end
-	end)
+	p.CharacterAdded:Connect(function() task.wait(0.5); if C.Chams then clearChams(p);applyChams(p) end end)
 end)
 Players.PlayerRemoving:Connect(function(p) clearESP(p); clearChams(p) end)
 
--- ══════════════════════════════════════════════════════
--- FOV CIRCLE
--- ══════════════════════════════════════════════════════
-local fovCircle = newDraw("Circle",{
-	Visible=false, Color=Color3.fromRGB(255,255,255),
-	Thickness=1.5, Filled=false, NumSides=64
-})
+-- ═══════════════════════════════════
+-- INPUT
+-- ═══════════════════════════════════
+UserInputService.InputBegan:Connect(function(inp, gp)
+	if gp then return end
+	local k = inp.KeyCode
+	local t = inp.UserInputType
 
--- ══════════════════════════════════════════════════════
--- MAIN LOOP
--- ══════════════════════════════════════════════════════
-RunService.RenderStepped:Connect(function()
-	local vp     = Camera.ViewportSize
-	local center = Vector2.new(vp.X/2, vp.Y/2)
-
-	fovCircle.Position = center
-	fovCircle.Radius   = C.FoVRadius
-	fovCircle.Visible  = C.ShowFoV and C.Aimbot
-
-	Camera.FieldOfView = C.CustomFOV and C.FOVValue or C.DefaultFOV
-
-	if WindowActive then
-		-- AIMBOT CAMERA
-		if C.Aimbot and C.AimMode == "Camera" then
-			local pressed = UserInputService:IsMouseButtonPressed(C.AimKey)
-			if Aiming or pressed then
-				Aiming = true
-				if not IsReady(Target) then Target = findTarget() end
-				local ok, _, _, on, worldPos = IsReady(Target)
-				if ok and on then
-					if CurrentTween then CurrentTween:Cancel() end
-					UserInputService.MouseDeltaSensitivity = 0
-					if C.UseSmoothness then
-						CurrentTween = TweenService:Create(Camera,
-							TweenInfo.new(math.clamp(C.Smoothness,1,99)/100, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
-							{CFrame = CFrame.new(Camera.CFrame.Position, worldPos)}
-						)
-						CurrentTween:Play()
-					else
-						Camera.CFrame = CFrame.new(Camera.CFrame.Position, worldPos)
-					end
-				else
-					if CurrentTween then CurrentTween:Cancel(); CurrentTween = nil end
-					UserInputService.MouseDeltaSensitivity = MouseSens
-					Target = nil
-				end
-			else
-				if CurrentTween then CurrentTween:Cancel(); CurrentTween = nil end
-				UserInputService.MouseDeltaSensitivity = MouseSens
-				Aiming = false; Target = nil
-			end
-		end
-
-		-- AIMBOT SILENT (target tracking only, hooks do the work)
-		if C.Aimbot and C.AimMode == "Silent" then
-			local pressed = UserInputService:IsMouseButtonPressed(C.AimKey)
-			if Aiming or pressed then
-				Aiming = true
-				if not IsReady(Target) then Target = findTarget() end
-			else
-				Aiming = false; Target = nil
-			end
-		end
-
-		-- SPINBOT
-		if C.SpinBot and Spinning then
-			local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(C.SpinVelocity), 0)
-			end
+	if C.Aimbot and (t == Enum.UserInputType.MouseButton2 or k == Enum.KeyCode.Q) then
+		if t == Enum.UserInputType.MouseButton2 then
+			if C.OnePressAim then Aiming = not Aiming
+			else Aiming = true end
 		end
 	end
 
-	-- HITBOX
-	if C.HitBox then
+	if C.SpinBot and k == Enum.KeyCode.Q then
+		if C.OnePressSpinB then Spinning = not Spinning
+		else Spinning = true end
+	end
+
+	if C.TriggerBot and k == Enum.KeyCode.E then
+		if C.OnePressTrigg then Triggering = not Triggering
+		else Triggering = true end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(inp)
+	local k = inp.KeyCode
+	local t = inp.UserInputType
+
+	if not C.OnePressAim and t == Enum.UserInputType.MouseButton2 then
+		Aiming = false; AimTarget = nil
+	end
+	if not C.OnePressSpinB and k == Enum.KeyCode.Q then Spinning = false end
+	if not C.OnePressTrigg and k == Enum.KeyCode.E then Triggering = false end
+end)
+
+UserInputService.WindowFocusReleased:Connect(function()
+	Aiming = false; Spinning = false; Triggering = false; AimTarget = nil
+end)
+
+-- Anti-AFK
+LP.Idled:Connect(function()
+	if not C.AntiAFK then return end
+	VirtualUser:Button2Down(Vector2.new(0,0), Camera.CFrame)
+	task.wait(0.1)
+	VirtualUser:Button2Up(Vector2.new(0,0), Camera.CFrame)
+end)
+
+-- ═══════════════════════════════════
+-- BACKGROUND LOOPS (не в RenderStepped!)
+-- ═══════════════════════════════════
+
+-- HitBox loop
+task.spawn(function()
+	while task.wait(0.1) do
+		if not C.HitBox then continue end
 		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= LP and (not C.HitBoxEnemyOnly or not isTeammate(p)) then
-				local char = p.Character
+			if p~=LP and (not C.HitBoxEnemyOnly or not isTeammate(p)) then
+				local char = getChar(p)
 				if char then
 					for _, v in ipairs(char:GetDescendants()) do
 						if v:IsA("BasePart") then
-							pcall(function()
-								v.Size = Vector3.new(C.HitBoxSize, C.HitBoxSize, C.HitBoxSize)
-							end)
+							pcall(function() v.Size=Vector3.new(C.HitBoxSize,C.HitBoxSize,C.HitBoxSize) end)
 						end
 					end
 				end
 			end
 		end
 	end
+end)
 
-	-- INFINITE AMMO
-	if C.InfAmmo then
+-- Infinite Ammo loop
+task.spawn(function()
+	while task.wait(0.5) do
+		if not C.InfAmmo then continue end
 		local char = LP.Character
-		if char then
-			for _, v in ipairs(char:GetDescendants()) do
-				if v:IsA("IntValue") or v:IsA("NumberValue") then
-					local n = v.Name:lower()
-					if (n:find("ammo") or n:find("bullet") or n:find("mag") or n:find("clip"))
-						and v.Value < 200 then
-						pcall(function() v.Value = 9999 end)
-					end
+		if not char then continue end
+		for _, v in ipairs(char:GetDescendants()) do
+			if v:IsA("IntValue") or v:IsA("NumberValue") then
+				local n = v.Name:lower()
+				if (n:find("ammo") or n:find("bullet") or n:find("mag") or n:find("clip")) and v.Value < 200 then
+					pcall(function() v.Value = 9999 end)
 				end
 			end
 		end
 	end
+end)
 
-	-- NO SPREAD
-	if C.NoSpread then
+-- No Spread loop
+task.spawn(function()
+	while task.wait(0.1) do
+		if not C.NoSpread then continue end
 		local char = LP.Character
-		if char then
-			for _, tool in ipairs(char:GetChildren()) do
-				if tool:IsA("Tool") then
-					for _, v in ipairs(tool:GetDescendants()) do
-						if v:IsA("NumberValue") or v:IsA("IntValue") then
-							local n = v.Name:lower()
-							if n:find("spread") or n:find("recoil") or n:find("scatter") or n:find("bloom") then
-								pcall(function() v.Value = 0 end)
-							end
+		if not char then continue end
+		for _, tool in ipairs(char:GetChildren()) do
+			if tool:IsA("Tool") then
+				for _, v in ipairs(tool:GetDescendants()) do
+					if v:IsA("NumberValue") or v:IsA("IntValue") then
+						local n = v.Name:lower()
+						if n:find("spread") or n:find("recoil") or n:find("bloom") or n:find("scatter") then
+							pcall(function() v.Value = 0 end)
 						end
 					end
 				end
 			end
 		end
 	end
+end)
 
-	-- ESP RENDER
+-- TriggerBot loop
+task.spawn(function()
+	while true do
+		task.wait(C.TrigDelay)
+		if not C.TriggerBot or not Triggering then continue end
+		local hitTarget = Mouse.Target
+		if not hitTarget then continue end
+		local p = Players:GetPlayerFromCharacter(hitTarget.Parent)
+		if not p or p == LP then continue end
+		if C.TrigTeamCheck and isTeammate(p) then continue end
+		local hum = getHum(p)
+		if not hum or hum.Health <= 0 then continue end
+		if math.random(1,100) > C.TrigChance then continue end
+		pcall(mouse1click)
+	end
+end)
+
+-- SpinBot in Heartbeat
+RunService.Heartbeat:Connect(function()
+	if not C.SpinBot or not Spinning then return end
+	local char = LP.Character
+	local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(C.SpinSpeed), 0)
+	end
+end)
+
+-- ═══════════════════════════════════
+-- RENDER LOOP (visual only)
+-- ═══════════════════════════════════
+RunService.RenderStepped:Connect(function()
+	local vp = Camera.ViewportSize
+	local cx  = vp.X/2
+	local cy  = vp.Y/2
+
+	-- FOV circle
+	fovDraw.Position = Vector2.new(cx, cy)
+	fovDraw.Radius   = C.FoVRadius
+	fovDraw.Visible  = C.ShowFoV and C.Aimbot
+
+	-- Camera FOV
+	Camera.FieldOfView = C.CustomFOV and C.FOVValue or C.OrigFOV
+
+	-- Camera aimbot
+	if C.Aimbot and C.AimMode == "Camera" then
+		local pressed = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+		if not C.OnePressAim then Aiming = pressed end
+		if Aiming then
+			if not AimTarget or not isValidTarget(AimTarget) then
+				AimTarget = findClosest()
+			end
+			if AimTarget then
+				local pos = getAimPos(AimTarget)
+				if pos then
+					local _, on = toScreen(pos)
+					if on then
+						local goal = CFrame.new(Camera.CFrame.Position, pos)
+						Camera.CFrame = Camera.CFrame:Lerp(goal, C.Smoothness)
+					else
+						AimTarget = nil
+					end
+				end
+			end
+		else
+			AimTarget = nil
+		end
+	end
+
+	-- Silent aimbot target tracking
+	if C.Aimbot and C.AimMode == "Silent" then
+		local pressed = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+		if not C.OnePressAim then Aiming = pressed end
+		if Aiming then
+			if not AimTarget or not isValidTarget(AimTarget) then
+				AimTarget = findClosest()
+			end
+		else
+			AimTarget = nil
+		end
+	end
+
+	-- ESP
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p == LP then continue end
 		local o = ESPPool[p]; if not o then continue end
 
-		local teammate = isTeammate(p)
-		local show     = C.ESP and ((teammate and C.ESPTeammates) or (not teammate and C.ESPEnemies))
-		local char     = p.Character
-		local hum      = char and char:FindFirstChildOfClass("Humanoid")
-		local root     = char and char:FindFirstChild("HumanoidRootPart")
+		local tm    = isTeammate(p)
+		local show  = C.ESP and ((tm and C.ESPTeammates) or (not tm and C.ESPEnemies))
+		local char  = getChar(p)
+		local hum   = char and char:FindFirstChildOfClass("Humanoid")
+		local root  = char and char:FindFirstChild("HumanoidRootPart")
 
-		if not show or not root or not hum or hum.Health <= 0 then
+		if not show or not root or not hum or hum.Health<=0 then
 			hideESP(o); continue
 		end
 
 		local dist = (Camera.CFrame.Position - root.Position).Magnitude
 		if dist > C.ESPMaxDist then hideESP(o); continue end
 
-		local rootSP, onScreen = getScreenPos(root.Position)
-		if not onScreen then hideESP(o); continue end
+		local rootSP, onSc = toScreen(root.Position)
+		if not onSc then hideESP(o); continue end
 
 		local head = char:FindFirstChild("Head")
 		if not head then hideESP(o); continue end
 
-		local mainColor = teammate and C.ESPTeamColor or C.ESPEnemyColor
-		local hp        = math.clamp(hum.Health / math.max(hum.MaxHealth,1), 0, 1)
-		local hpColor   = Color3.fromHSV(hp * 0.33, 1, 1)
+		local mainC = tm and C.ESPTeamCol or C.ESPEnemyCol
+		local hp    = math.clamp(hum.Health/math.max(hum.MaxHealth,1), 0, 1)
+		local hpC   = Color3.fromHSV(hp*0.33, 1, 1)
 
-		local topSP  = getScreenPos(head.Position + Vector3.new(0,0.7,0))
-		local botSP  = getScreenPos(root.Position  - Vector3.new(0,2.8,0))
-		local height = math.abs(topSP.Y - botSP.Y)
-		if height < 2 then hideESP(o); continue end
-		local width = height * 0.55
-		local left  = rootSP.X - width/2
-		local top   = topSP.Y
+		local topSP = toScreen(head.Position + Vector3.new(0,0.7,0))
+		local botSP = toScreen(root.Position  - Vector3.new(0,2.8,0))
+		local h     = math.abs(topSP.Y - botSP.Y)
+		if h < 2 then hideESP(o); continue end
+		local w = h*0.55; local l = rootSP.X - w/2; local t = topSP.Y
 
 		if C.ESPBoxes then
-			o.fill.Position=Vector2.new(left,top); o.fill.Size=Vector2.new(width,height)
-			o.fill.Color=mainColor; o.fill.Visible=true
-			o.box.Position=Vector2.new(left,top);  o.box.Size=Vector2.new(width,height)
-			o.box.Color=mainColor;  o.box.Visible=true
-			drawCorners(o, left, top, width, height, Color3.fromRGB(255,255,255))
+			o.fill.Position=Vector2.new(l,t); o.fill.Size=Vector2.new(w,h); o.fill.Color=mainC; o.fill.Visible=true
+			o.box.Position=Vector2.new(l,t);  o.box.Size=Vector2.new(w,h);  o.box.Color=mainC;  o.box.Visible=true
+			corners(o, l, t, w, h, Color3.fromRGB(255,255,255))
 		else
 			o.fill.Visible=false; o.box.Visible=false
-			for _, k in ipairs(CORNER_KEYS) do o[k].Visible=false end
+			for _, k in ipairs(CKEYS) do o[k].Visible=false end
 		end
 
 		if C.ESPHealth then
-			local bw=4; local bh=height; local fill=bh*hp
-			o.hpOutline.Position=Vector2.new(left-bw-4,top); o.hpOutline.Size=Vector2.new(bw,bh); o.hpOutline.Visible=true
-			o.hpBg.Position=Vector2.new(left-bw-4,top);      o.hpBg.Size=Vector2.new(bw,bh);      o.hpBg.Visible=true
-			o.hpBar.Position=Vector2.new(left-bw-4,top+bh-fill); o.hpBar.Size=Vector2.new(bw,fill)
-			o.hpBar.Color=hpColor; o.hpBar.Visible=true
-			o.hpText.Text=math.floor(hum.Health).."hp"
-			o.hpText.Position=Vector2.new(left-bw-4+bw/2, top+bh+2); o.hpText.Visible=true
+			local bw=4; local bh=h; local fill=bh*hp
+			o.hpOut.Position=Vector2.new(l-bw-4,t); o.hpOut.Size=Vector2.new(bw,bh); o.hpOut.Visible=true
+			o.hpBg.Position=Vector2.new(l-bw-4,t);  o.hpBg.Size=Vector2.new(bw,bh);  o.hpBg.Visible=true
+			o.hpBar.Position=Vector2.new(l-bw-4,t+bh-fill); o.hpBar.Size=Vector2.new(bw,fill); o.hpBar.Color=hpC; o.hpBar.Visible=true
+			o.hpTxt.Text=math.floor(hum.Health).."hp"; o.hpTxt.Position=Vector2.new(l-bw-4+bw/2,t+bh+2); o.hpTxt.Visible=true
 		else
-			o.hpOutline.Visible=false; o.hpBg.Visible=false; o.hpBar.Visible=false; o.hpText.Visible=false
+			o.hpOut.Visible=false; o.hpBg.Visible=false; o.hpBar.Visible=false; o.hpTxt.Visible=false
 		end
 
 		if C.ESPNames then
-			o.nameLbl.Text=p.DisplayName; o.nameLbl.Color=Color3.fromRGB(255,255,255)
-			o.nameLbl.Position=Vector2.new(rootSP.X, top-28); o.nameLbl.Visible=true
-			o.tagLbl.Text=teammate and "[TEAM]" or "[ENEMY]"; o.tagLbl.Color=mainColor
-			o.tagLbl.Position=Vector2.new(rootSP.X, top-16);  o.tagLbl.Visible=true
-		else o.nameLbl.Visible=false; o.tagLbl.Visible=false end
+			o.name.Text=p.DisplayName; o.name.Color=Color3.fromRGB(255,255,255); o.name.Position=Vector2.new(rootSP.X,t-28); o.name.Visible=true
+			o.tag.Text=tm and "[TEAM]" or "[ENEMY]"; o.tag.Color=mainC; o.tag.Position=Vector2.new(rootSP.X,t-16); o.tag.Visible=true
+		else o.name.Visible=false; o.tag.Visible=false end
 
 		if C.ESPDistance then
-			o.distLbl.Text=math.floor(dist).."m"
-			o.distLbl.Position=Vector2.new(rootSP.X, top+height+3); o.distLbl.Visible=true
-		else o.distLbl.Visible=false end
+			o.dist.Text=math.floor(dist).."m"; o.dist.Position=Vector2.new(rootSP.X,t+h+3); o.dist.Visible=true
+		else o.dist.Visible=false end
 
 		if C.ESPTracers then
-			o.tracer.From=Vector2.new(center.X,vp.Y); o.tracer.To=rootSP
-			o.tracer.Color=mainColor; o.tracer.Visible=true
-		else o.tracer.Visible=false end
+			o.trace.From=Vector2.new(cx,vp.Y); o.trace.To=rootSP; o.trace.Color=mainC; o.trace.Visible=true
+		else o.trace.Visible=false end
 
 		if C.ESPHeadDot then
-			local hsp = getScreenPos(head.Position)
-			o.headDot.Position=hsp;  o.headDot.Color=Color3.fromRGB(255,255,255); o.headDot.Visible=true
-			o.headFill.Position=hsp; o.headFill.Color=mainColor;                   o.headFill.Visible=true
-		else o.headDot.Visible=false; o.headFill.Visible=false end
+			local hsp = toScreen(head.Position)
+			o.hdot.Position=hsp; o.hdot.Color=Color3.fromRGB(255,255,255); o.hdot.Visible=true
+			o.hfill.Position=hsp; o.hfill.Color=mainC; o.hfill.Visible=true
+		else o.hdot.Visible=false; o.hfill.Visible=false end
 
 		if C.ESPSkeleton then
-			for idx, pair in ipairs(SKEL_PAIRS) do
+			for idx, pair in ipairs(SKEL) do
 				local b1=char:FindFirstChild(pair[1]); local b2=char:FindFirstChild(pair[2])
 				local ln=o.skel[idx]
 				if b1 and b2 then
-					ln.From=getScreenPos(b1.Position); ln.To=getScreenPos(b2.Position)
-					ln.Color=mainColor; ln.Visible=true
+					ln.From=toScreen(b1.Position); ln.To=toScreen(b2.Position); ln.Color=mainC; ln.Visible=true
 				else ln.Visible=false end
 			end
-		else for _, l in ipairs(o.skel) do l.Visible=false end end
+		else for _,l in ipairs(o.skel) do l.Visible=false end end
 	end
 end)
 
--- ══════════════════════════════════════════════════════
+-- ═══════════════════════════════════
 -- UI
--- ══════════════════════════════════════════════════════
+-- ═══════════════════════════════════
 local Win = Rayfield:CreateWindow({
 	Name="Astra Hub", Icon=0,
-	LoadingTitle="Astra Hub", LoadingSubtitle="Loading...",
+	LoadingTitle="Astra Hub", LoadingSubtitle="v1.0",
 	Theme="Default",
 	ConfigurationSaving={Enabled=true, FileName="AstraHub"},
 	KeySystem=false,
 })
 
--- ── AIMBOT TAB ────────────────────────────────────────
-local AimTab = Win:CreateTab("Aimbot", 4483362458)
-
-AimTab:CreateSection("Aimbot")
-AimTab:CreateToggle({Name="Enable Aimbot", CurrentValue=false, Flag="AimOn",
-	Callback=function(v) C.Aimbot=v; if not v then resetAim() end end})
-AimTab:CreateDropdown({Name="Aim Mode", Options={"Camera","Silent"}, CurrentOption={"Camera"}, Flag="AimMode",
-	Callback=function(v) C.AimMode=v[1]; resetAim() end})
-AimTab:CreateToggle({Name="One-Press Mode (toggle instead of hold)", CurrentValue=false, Flag="OnePressAim",
+-- ── AIMBOT ───────────────────────────────────────────
+local AT = Win:CreateTab("Aimbot", 4483362458)
+AT:CreateSection("Aimbot")
+AT:CreateToggle({Name="Enable Aimbot", CurrentValue=false, Flag="AimOn",
+	Callback=function(v) C.Aimbot=v; if not v then Aiming=false; AimTarget=nil end end})
+AT:CreateDropdown({Name="Mode", Options={"Camera","Silent"}, CurrentOption={"Camera"}, Flag="AimMd",
+	Callback=function(v) C.AimMode=v[1]; Aiming=false; AimTarget=nil end})
+AT:CreateToggle({Name="One-Press Mode", CurrentValue=false, Flag="AimOneP",
 	Callback=function(v) C.OnePressAim=v end})
-AimTab:CreateToggle({Name="Enemies Only", CurrentValue=true, Flag="AimTeam",
+AT:CreateToggle({Name="Enemies Only", CurrentValue=true, Flag="AimTeam",
 	Callback=function(v) C.TeamCheck=v end})
-AimTab:CreateToggle({Name="Alive Check", CurrentValue=true, Flag="AliveChk",
+AT:CreateToggle({Name="Alive Check", CurrentValue=true, Flag="AimAlive",
 	Callback=function(v) C.AliveCheck=v end})
-AimTab:CreateToggle({Name="Wall Check", CurrentValue=false, Flag="WallChk",
+AT:CreateToggle({Name="Wall Check", CurrentValue=false, Flag="AimWall",
 	Callback=function(v) C.WallCheck=v end})
-AimTab:CreateToggle({Name="FOV Check", CurrentValue=true, Flag="FovChk",
+AT:CreateToggle({Name="FOV Check", CurrentValue=true, Flag="AimFovChk",
 	Callback=function(v) C.FoVCheck=v end})
-AimTab:CreateToggle({Name="Show FOV Circle", CurrentValue=true, Flag="ShowFov",
+AT:CreateToggle({Name="Show FOV Circle", CurrentValue=true, Flag="AimShowF",
 	Callback=function(v) C.ShowFoV=v end})
-AimTab:CreateSlider({Name="FOV Radius", Range={10,500}, Increment=1, CurrentValue=150, Flag="FovR",
+AT:CreateSlider({Name="FOV Radius", Range={10,500}, Increment=1, CurrentValue=150, Flag="AimFovR",
 	Callback=function(v) C.FoVRadius=v end})
-AimTab:CreateDropdown({Name="Target Bone", Options={"Head","HumanoidRootPart","UpperTorso","LowerTorso"}, CurrentOption={"Head"}, Flag="AimBone",
+AT:CreateDropdown({Name="Target Bone", Options={"Head","HumanoidRootPart","UpperTorso","LowerTorso"}, CurrentOption={"Head"}, Flag="AimBone",
 	Callback=function(v) C.AimPart=v[1] end})
+AT:CreateSlider({Name="Smoothness (lower = snap)", Range={1,30}, Increment=1, CurrentValue=15, Flag="AimSm",
+	Callback=function(v) C.Smoothness=v/100 end})
 
-AimTab:CreateSection("Camera Smoothness")
-AimTab:CreateToggle({Name="Use Smoothness", CurrentValue=true, Flag="UseSm",
-	Callback=function(v) C.UseSmoothness=v end})
-AimTab:CreateSlider({Name="Smoothness (lower = snappier)", Range={1,99}, Increment=1, CurrentValue=15, Flag="SmVal",
-	Callback=function(v) C.Smoothness=v end})
-
-AimTab:CreateSection("Aim Offset")
-AimTab:CreateToggle({Name="Use Offset", CurrentValue=false, Flag="UseOff",
+AT:CreateSection("Aim Offset & Noise")
+AT:CreateToggle({Name="Use Y Offset", CurrentValue=false, Flag="AimUseOff",
 	Callback=function(v) C.UseOffset=v end})
-AimTab:CreateSlider({Name="Static Offset (Y)", Range={0,50}, Increment=1, CurrentValue=0, Flag="StatOff",
-	Callback=function(v) C.StaticOffset=v end})
-AimTab:CreateSlider({Name="Dynamic Offset (movement pred)", Range={0,50}, Increment=1, CurrentValue=0, Flag="DynOff",
-	Callback=function(v) C.DynamicOffset=v end})
-
-AimTab:CreateSection("Humanization")
-AimTab:CreateToggle({Name="Noise / Human Shake", CurrentValue=false, Flag="UseNoise",
+AT:CreateSlider({Name="Offset Y", Range={-30,30}, Increment=1, CurrentValue=0, Flag="AimOffY",
+	Callback=function(v) C.OffsetY=v/10 end})
+AT:CreateToggle({Name="Noise (humanize)", CurrentValue=false, Flag="AimNoise",
 	Callback=function(v) C.UseNoise=v end})
-AimTab:CreateSlider({Name="Noise Strength", Range={1,100}, Increment=1, CurrentValue=20, Flag="NoiseStr",
-	Callback=function(v) C.NoiseStrength=v end})
+AT:CreateSlider({Name="Noise Strength", Range={1,50}, Increment=1, CurrentValue=5, Flag="AimNoiseS",
+	Callback=function(v) C.NoiseStr=v/100 end})
 
-AimTab:CreateSection("Silent Aim Methods")
-AimTab:CreateParagraph({Title="Info", Content="Silent mode hooks Mouse.Hit, Raycast and more so bullets bend to target without moving your camera."})
-AimTab:CreateToggle({Name="Mouse.Hit / Mouse.Target", CurrentValue=true, Flag="SilHit",
-	Callback=function(v) C.SilentMouseHit=v; C.SilentMouseTarget=v end})
-AimTab:CreateToggle({Name="GetMouseLocation", CurrentValue=true, Flag="SilGML",
-	Callback=function(v) C.SilentGetMouseLoc=v end})
-AimTab:CreateToggle({Name="Raycast", CurrentValue=true, Flag="SilRay",
-	Callback=function(v) C.SilentRaycast=v end})
-AimTab:CreateToggle({Name="FindPartOnRay", CurrentValue=true, Flag="SilFPOR",
-	Callback=function(v) C.SilentFindPart=v end})
+AT:CreateSection("Silent Aim Methods")
+AT:CreateParagraph({Title="Info", Content="Silent mode: bullets redirect without camera moving. Hook: "..(hookOk and "ACTIVE ✓" or "NOT SUPPORTED")})
+AT:CreateToggle({Name="Mouse.Hit / Mouse.Target", CurrentValue=true, Flag="SilHit",
+	Callback=function(v) C.SilHit=v; C.SilTarget=v end})
+AT:CreateToggle({Name="GetMouseLocation", CurrentValue=true, Flag="SilML",
+	Callback=function(v) C.SilMouseLoc=v end})
+AT:CreateToggle({Name="Raycast / FindPartOnRay", CurrentValue=true, Flag="SilRay",
+	Callback=function(v) C.SilRaycast=v end})
+AT:CreateParagraph({Title="Key", Content="Hold RMB to aim. One-Press: RMB toggles on/off."})
 
--- ── ESP TAB ───────────────────────────────────────────
-local ESPTab = Win:CreateTab("ESP", 4483362458)
-
-ESPTab:CreateSection("Targets")
-ESPTab:CreateToggle({Name="Enable ESP", CurrentValue=false, Flag="ESPOn",
-	Callback=function(v) C.ESP=v end})
-ESPTab:CreateToggle({Name="Show Enemies", CurrentValue=true, Flag="ESPEnemy",
-	Callback=function(v) C.ESPEnemies=v end})
-ESPTab:CreateToggle({Name="Show Teammates", CurrentValue=true, Flag="ESPTeam",
-	Callback=function(v) C.ESPTeammates=v end})
-
-ESPTab:CreateSection("Elements")
-ESPTab:CreateToggle({Name="Boxes + Corners", CurrentValue=true, Flag="ESPBox",
-	Callback=function(v) C.ESPBoxes=v end})
-ESPTab:CreateToggle({Name="Names + Tag", CurrentValue=true, Flag="ESPName",
-	Callback=function(v) C.ESPNames=v end})
-ESPTab:CreateToggle({Name="Health Bar", CurrentValue=true, Flag="ESPHp",
-	Callback=function(v) C.ESPHealth=v end})
-ESPTab:CreateToggle({Name="Distance", CurrentValue=true, Flag="ESPDist",
-	Callback=function(v) C.ESPDistance=v end})
-ESPTab:CreateToggle({Name="Tracers", CurrentValue=false, Flag="ESPTrace",
-	Callback=function(v) C.ESPTracers=v end})
-ESPTab:CreateToggle({Name="Skeleton", CurrentValue=false, Flag="ESPSkel",
-	Callback=function(v) C.ESPSkeleton=v end})
-ESPTab:CreateToggle({Name="Head Dot", CurrentValue=true, Flag="ESPHead",
-	Callback=function(v) C.ESPHeadDot=v end})
-ESPTab:CreateSlider({Name="Max Distance (studs)", Range={100,2000}, Increment=50, CurrentValue=1000, Flag="ESPMax",
+-- ── ESP ──────────────────────────────────────────────
+local ET = Win:CreateTab("ESP", 4483362458)
+ET:CreateSection("Targets")
+ET:CreateToggle({Name="Enable ESP", CurrentValue=false, Flag="ESPOn", Callback=function(v) C.ESP=v end})
+ET:CreateToggle({Name="Show Enemies", CurrentValue=true, Flag="ESPEn", Callback=function(v) C.ESPEnemies=v end})
+ET:CreateToggle({Name="Show Teammates", CurrentValue=true, Flag="ESPTm", Callback=function(v) C.ESPTeammates=v end})
+ET:CreateSection("Elements")
+ET:CreateToggle({Name="Boxes + Corners", CurrentValue=true, Flag="ESPBox", Callback=function(v) C.ESPBoxes=v end})
+ET:CreateToggle({Name="Names + Tag", CurrentValue=true, Flag="ESPNm", Callback=function(v) C.ESPNames=v end})
+ET:CreateToggle({Name="Health Bar", CurrentValue=true, Flag="ESPHp", Callback=function(v) C.ESPHealth=v end})
+ET:CreateToggle({Name="Distance", CurrentValue=true, Flag="ESPDst", Callback=function(v) C.ESPDistance=v end})
+ET:CreateToggle({Name="Tracers", CurrentValue=false, Flag="ESPTr", Callback=function(v) C.ESPTracers=v end})
+ET:CreateToggle({Name="Skeleton", CurrentValue=false, Flag="ESPSk", Callback=function(v) C.ESPSkeleton=v end})
+ET:CreateToggle({Name="Head Dot", CurrentValue=true, Flag="ESPHd", Callback=function(v) C.ESPHeadDot=v end})
+ET:CreateSlider({Name="Max Distance", Range={100,2000}, Increment=50, CurrentValue=1000, Flag="ESPMax",
 	Callback=function(v) C.ESPMaxDist=v end})
 
--- ── COMBAT TAB ────────────────────────────────────────
-local CombatTab = Win:CreateTab("Combat", 4483362458)
-
-CombatTab:CreateSection("HitBox Expander")
-CombatTab:CreateToggle({Name="Enable HitBox", CurrentValue=false, Flag="HitOn",
-	Callback=function(v) C.HitBox=v end})
-CombatTab:CreateToggle({Name="Enemies Only", CurrentValue=true, Flag="HitTeam",
-	Callback=function(v) C.HitBoxEnemyOnly=v end})
-CombatTab:CreateSlider({Name="HitBox Size", Range={1,20}, Increment=0.5, CurrentValue=5, Flag="HitSz",
+-- ── COMBAT ───────────────────────────────────────────
+local CT = Win:CreateTab("Combat", 4483362458)
+CT:CreateSection("HitBox")
+CT:CreateToggle({Name="HitBox Expander", CurrentValue=false, Flag="HBOn", Callback=function(v) C.HitBox=v end})
+CT:CreateToggle({Name="Enemies Only", CurrentValue=true, Flag="HBTeam", Callback=function(v) C.HitBoxEnemyOnly=v end})
+CT:CreateSlider({Name="HitBox Size", Range={1,20}, Increment=1, CurrentValue=5, Flag="HBSz",
 	Callback=function(v) C.HitBoxSize=v end})
 
-CombatTab:CreateSection("TriggerBot")
-CombatTab:CreateToggle({Name="Enable TriggerBot", CurrentValue=false, Flag="TrigOn",
+CT:CreateSection("TriggerBot")
+CT:CreateToggle({Name="Enable TriggerBot", CurrentValue=false, Flag="TBOn",
 	Callback=function(v) C.TriggerBot=v; if not v then Triggering=false end end})
-CombatTab:CreateToggle({Name="One-Press Mode (E toggle)", CurrentValue=false, Flag="OnePTrig",
-	Callback=function(v) C.OnePressTrigger=v end})
-CombatTab:CreateToggle({Name="Smart Trigger (IsReady check)", CurrentValue=true, Flag="SmartTrig",
-	Callback=function(v) C.SmartTrigger=v end})
-CombatTab:CreateToggle({Name="Enemies Only", CurrentValue=true, Flag="TrigTeam",
-	Callback=function(v) C.TeamCheck=v end})
-CombatTab:CreateSlider({Name="Trigger Delay (ms)", Range={1,200}, Increment=1, CurrentValue=50, Flag="TrigDelay",
-	Callback=function(v) C.TriggerDelay=v/1000 end})
-CombatTab:CreateSlider({Name="Trigger Chance (%)", Range={1,100}, Increment=1, CurrentValue=100, Flag="TrigChance",
-	Callback=function(v) C.TriggerChance=v end})
-CombatTab:CreateParagraph({Title="Key", Content="Hold E to activate. Enable One-Press to toggle instead."})
+CT:CreateToggle({Name="One-Press (E toggle)", CurrentValue=false, Flag="TBOneP",
+	Callback=function(v) C.OnePressTrigg=v end})
+CT:CreateToggle({Name="Enemies Only", CurrentValue=true, Flag="TBTeam",
+	Callback=function(v) C.TrigTeamCheck=v end})
+CT:CreateSlider({Name="Delay (ms)", Range={10,500}, Increment=10, CurrentValue=60, Flag="TBDelay",
+	Callback=function(v) C.TrigDelay=v/1000 end})
+CT:CreateSlider({Name="Chance (%)", Range={1,100}, Increment=1, CurrentValue=100, Flag="TBChance",
+	Callback=function(v) C.TrigChance=v end})
+CT:CreateParagraph({Title="Key", Content="Hold E to fire on target. One-Press = E toggles."})
 
-CombatTab:CreateSection("SpinBot")
-CombatTab:CreateToggle({Name="Enable SpinBot", CurrentValue=false, Flag="SpinOn",
+CT:CreateSection("SpinBot")
+CT:CreateToggle({Name="Enable SpinBot", CurrentValue=false, Flag="SBOn",
 	Callback=function(v) C.SpinBot=v; if not v then Spinning=false end end})
-CombatTab:CreateToggle({Name="One-Press Mode (Q toggle)", CurrentValue=false, Flag="OnePSpin",
-	Callback=function(v) C.OnePressSpinBot=v end})
-CombatTab:CreateSlider({Name="Spin Speed", Range={1,200}, Increment=1, CurrentValue=50, Flag="SpinSpd",
-	Callback=function(v) C.SpinVelocity=v end})
-CombatTab:CreateParagraph({Title="Key", Content="Hold Q to spin. Enable One-Press to toggle instead."})
+CT:CreateToggle({Name="One-Press (Q toggle)", CurrentValue=false, Flag="SBOneP",
+	Callback=function(v) C.OnePressSpinB=v end})
+CT:CreateSlider({Name="Spin Speed", Range={1,200}, Increment=1, CurrentValue=50, Flag="SBSpd",
+	Callback=function(v) C.SpinSpeed=v end})
+CT:CreateParagraph({Title="Key", Content="Hold Q to spin. One-Press = Q toggles."})
 
-CombatTab:CreateSection("Ammo & Accuracy")
-CombatTab:CreateToggle({Name="Infinite Ammo", CurrentValue=false, Flag="InfAmmoOn",
-	Callback=function(v) C.InfAmmo=v end})
-CombatTab:CreateToggle({Name="No Spread / No Recoil", CurrentValue=false, Flag="NoSpreadOn",
-	Callback=function(v) C.NoSpread=v end})
+CT:CreateSection("Ammo & Accuracy")
+CT:CreateToggle({Name="Infinite Ammo", CurrentValue=false, Flag="InfAmm", Callback=function(v) C.InfAmmo=v end})
+CT:CreateToggle({Name="No Spread / Recoil", CurrentValue=false, Flag="NoSpr", Callback=function(v) C.NoSpread=v end})
 
--- ── CHAMS TAB ─────────────────────────────────────────
-local ChamsTab = Win:CreateTab("Chams", 4483362458)
-
-ChamsTab:CreateSection("Chams")
-ChamsTab:CreateToggle({Name="Enable Chams", CurrentValue=false, Flag="ChamsOn",
+-- ── CHAMS ────────────────────────────────────────────
+local ChT = Win:CreateTab("Chams", 4483362458)
+ChT:CreateSection("Chams")
+ChT:CreateToggle({Name="Enable Chams", CurrentValue=false, Flag="ChOn",
 	Callback=function(v) C.Chams=v; refreshChams() end})
-ChamsTab:CreateSlider({Name="Transparency", Range={0,90}, Increment=5, CurrentValue=40, Flag="ChamsT",
+ChT:CreateSlider({Name="Transparency", Range={0,90}, Increment=5, CurrentValue=40, Flag="ChTr",
 	Callback=function(v) C.ChamsTransp=v/100; if C.Chams then refreshChams() end end})
-
-ChamsTab:CreateSection("Enemy Color")
-for name, rgb in pairs({Red={255,50,50}, Orange={255,140,0}, Yellow={255,220,0}, Pink={255,80,200}, White={240,240,240}}) do
-	ChamsTab:CreateButton({Name="Enemy: "..name, Callback=function()
-		C.ChamsEnemyColor=Color3.fromRGB(rgb[1],rgb[2],rgb[3])
-		if C.Chams then refreshChams() end
+ChT:CreateSection("Enemy Color")
+for n, rgb in pairs({Red={255,50,50},Orange={255,140,0},Yellow={255,220,0},Pink={255,80,200},White={240,240,240}}) do
+	ChT:CreateButton({Name="Enemy: "..n, Callback=function()
+		C.ChamsEnemyCol=Color3.fromRGB(rgb[1],rgb[2],rgb[3]); if C.Chams then refreshChams() end
 	end})
 end
-
-ChamsTab:CreateSection("Teammate Color")
-for name, rgb in pairs({Blue={50,100,255}, Cyan={0,200,255}, Green={50,220,100}, Purple={160,50,255}}) do
-	ChamsTab:CreateButton({Name="Team: "..name, Callback=function()
-		C.ChamsTeamColor=Color3.fromRGB(rgb[1],rgb[2],rgb[3])
-		if C.Chams then refreshChams() end
+ChT:CreateSection("Team Color")
+for n, rgb in pairs({Blue={50,100,255},Cyan={0,200,255},Green={50,220,100},Purple={160,50,255}}) do
+	ChT:CreateButton({Name="Team: "..n, Callback=function()
+		C.ChamsTeamCol=Color3.fromRGB(rgb[1],rgb[2],rgb[3]); if C.Chams then refreshChams() end
 	end})
 end
-ChamsTab:CreateButton({Name="Refresh Chams", Callback=function()
+ChT:CreateButton({Name="Refresh Chams", Callback=function()
 	if C.Chams then refreshChams() end
 	Rayfield:Notify({Title="Astra Hub", Content="Chams refreshed", Duration=2})
 end})
 
--- ── MISC TAB ──────────────────────────────────────────
-local MiscTab = Win:CreateTab("Misc", 4483362458)
-
-MiscTab:CreateSection("Camera FOV")
-MiscTab:CreateToggle({Name="Custom FOV", CurrentValue=false, Flag="CamFOVOn",
-	Callback=function(v)
-		C.CustomFOV=v
-		if not v then Camera.FieldOfView=C.DefaultFOV end
-	end})
-MiscTab:CreateSlider({Name="FOV Value", Range={30,120}, Increment=1, CurrentValue=70, Flag="CamFOVVal",
+-- ── MISC ─────────────────────────────────────────────
+local MT = Win:CreateTab("Misc", 4483362458)
+MT:CreateSection("Camera FOV")
+MT:CreateToggle({Name="Custom FOV", CurrentValue=false, Flag="CFOVOn",
+	Callback=function(v) C.CustomFOV=v; if not v then Camera.FieldOfView=C.OrigFOV end end})
+MT:CreateSlider({Name="FOV Value", Range={30,120}, Increment=1, CurrentValue=70, Flag="CFOVVal",
 	Callback=function(v) C.FOVValue=v end})
-
-MiscTab:CreateSection("Anti-AFK")
-MiscTab:CreateToggle({Name="Anti-AFK", CurrentValue=false, Flag="AntiAFKOn",
-	Callback=function(v) C.AntiAFK=v end})
-
-MiscTab:CreateSection("Actions")
-MiscTab:CreateButton({Name="Disable ALL", Callback=function()
+MT:CreateSection("Anti-AFK")
+MT:CreateToggle({Name="Anti-AFK", CurrentValue=false, Flag="AAfk", Callback=function(v) C.AntiAFK=v end})
+MT:CreateSection("Actions")
+MT:CreateButton({Name="Disable ALL", Callback=function()
 	C.Aimbot=false; C.ESP=false; C.HitBox=false; C.Chams=false
 	C.InfAmmo=false; C.NoSpread=false; C.SpinBot=false
 	C.TriggerBot=false; C.CustomFOV=false; C.AntiAFK=false
-	Aiming=false; Spinning=false; Triggering=false
-	resetAim(); refreshChams()
-	Camera.FieldOfView=C.DefaultFOV
-	Rayfield:Notify({Title="Astra Hub", Content="All disabled", Duration=3})
+	Aiming=false; Spinning=false; Triggering=false; AimTarget=nil
+	Camera.FieldOfView=C.OrigFOV; refreshChams()
+	Rayfield:Notify({Title="Astra Hub", Content="All off", Duration=2})
 end})
-MiscTab:CreateButton({Name="Destroy Script", Callback=function()
-	pcall(function() fovCircle:Remove() end)
+MT:CreateButton({Name="Destroy Script", Callback=function()
+	pcall(function() fovDraw:Remove() end)
 	for _, p in ipairs(Players:GetPlayers()) do clearESP(p); clearChams(p) end
-	resetAim()
-	Camera.FieldOfView=C.DefaultFOV
+	Aiming=false; Spinning=false; Triggering=false; AimTarget=nil
+	Camera.FieldOfView=C.OrigFOV
 	pcall(function() Rayfield:Destroy() end)
 end})
 
--- ── SETTINGS TAB ──────────────────────────────────────
-local SetTab = Win:CreateTab("Settings", 4483362458)
-
-SetTab:CreateSection("Hook Status")
-SetTab:CreateParagraph({
-	Title="Silent __index",
-	Content=silentIndexOk and "Mouse.Hit / Target: ACTIVE ✓" or "Not supported on this executor",
-})
-SetTab:CreateParagraph({
-	Title="Silent __namecall",
-	Content=silentCallOk and "Raycast / GetMouseLocation: ACTIVE ✓" or "Not supported on this executor",
-})
-SetTab:CreateSection("Controls")
-SetTab:CreateParagraph({
-	Title="Key Binds",
-	Content="Aimbot: hold RMB\nSpinBot: hold Q (or toggle)\nTriggerBot: hold E (or toggle)",
-})
-
 Rayfield:Notify({
 	Title="Astra Hub",
-	Content="Loaded!  RMB=Aim  Q=Spin  E=Trigger",
+	Content="RMB = Aim  |  Q = Spin  |  E = Trigger",
 	Duration=5,
 })
