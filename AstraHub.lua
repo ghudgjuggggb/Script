@@ -216,8 +216,16 @@ local function getAimPos(p)
 	return pos
 end
 
+local function getAimCenter()
+	if IS_MOBILE then
+		local vp = Camera.ViewportSize
+		return Vector2.new(vp.X / 2, vp.Y / 2)
+	end
+	return Vector2.new(Mouse.X, Mouse.Y)
+end
+
 local function findClosest()
-	local center = Vector2.new(Mouse.X, Mouse.Y)
+	local center = getAimCenter()
 	local maxD   = C.FoVCheck and C.FoVRadius or math.huge
 	local best, bestD = nil, maxD
 	for _, p in ipairs(Players:GetPlayers()) do
@@ -413,24 +421,35 @@ end)
 Players.PlayerRemoving:Connect(function(p) clearESP(p); clearChams(p) end)
 
 if IS_MOBILE then
+	local touchHoldThread = nil
+
 	UserInputService.InputBegan:Connect(function(inp, gp)
 		if gp or inp.UserInputType ~= Enum.UserInputType.Touch then return end
-		State.TouchStartPos = inp.Position
+		State.TouchStartPos  = inp.Position
 		State.TouchStartTime = tick()
+
 		if C.Aimbot then
 			if C.OnePressAim then
 				State.Aiming = not State.Aiming
+				if not State.Aiming then State.AimTarget = nil end
 			else
-				State.Aiming = true
+				touchHoldThread = task.delay(0.25, function()
+					State.Aiming = true
+				end)
 			end
 		end
 	end)
 
 	UserInputService.InputEnded:Connect(function(inp, gp)
 		if gp or inp.UserInputType ~= Enum.UserInputType.Touch then return end
-		local delta = (inp.Position - State.TouchStartPos).Magnitude
+		local delta     = (inp.Position - State.TouchStartPos).Magnitude
 		local timeDelta = tick() - State.TouchStartTime
-		
+
+		if touchHoldThread then
+			task.cancel(touchHoldThread)
+			touchHoldThread = nil
+		end
+
 		if delta > 80 then
 			if inp.Position.X > State.TouchStartPos.X + 80 then
 				if C.SpinBot then
@@ -441,8 +460,10 @@ if IS_MOBILE then
 					if C.OnePressTrigg then State.Triggering = not State.Triggering else State.Triggering = true end
 				end
 			end
-		elseif timeDelta > 0.5 and not C.OnePressAim then
-			State.Aiming = false
+		end
+
+		if not C.OnePressAim then
+			State.Aiming    = false
 			State.AimTarget = nil
 		end
 	end)
@@ -590,9 +611,9 @@ RunService.RenderStepped:Connect(function()
 	local vp = Camera.ViewportSize
 	local cx  = vp.X/2
 	local cy  = vp.Y/2
+	local aimCenter = getAimCenter()
 
-	-- FOV Circle
-	fovDraw.Position = Vector2.new(cx, cy)
+	fovDraw.Position = aimCenter
 	fovDraw.Radius   = C.FoVRadius
 	fovDraw.Visible  = C.ShowFoV and C.Aimbot
 
@@ -919,7 +940,7 @@ MT:CreateButton({Name="Destroy Script", Callback=function()
 end})
 
 Rayfield:Notify({
-	Title="Astra Hub v1.1",
-	Content=(IS_MOBILE and "Mobile: Double tap = Aim  |  Swipe right = Spin  |  Swipe left = Trigger" or "PC: RMB = Aim  |  Q = Spin  |  E = Trigger"),
+	Title="Astra Hub v2.0",
+	Content=(IS_MOBILE and "Mobile: Держи палец = Aim  |  Свайп вправо = Spin  |  Свайп влево = Trigger" or "PC: RMB = Aim  |  Q = Spin  |  E = Trigger"),
 	Duration=6,
 })
