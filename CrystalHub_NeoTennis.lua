@@ -23,7 +23,7 @@ local TweenService = game:GetService("TweenService")
 local LP = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Folders for ESP
+-- Folders
 local ESPFolder = Instance.new("Folder")
 ESPFolder.Name = "CrystalESP"
 ESPFolder.Parent = Workspace
@@ -47,20 +47,49 @@ local function GetHumanoid()
     return char:FindFirstChildOfClass("Humanoid")
 end
 
--- Find ball in workspace (improved detection)
+-- ============================================
+-- IMPROVED BALL DETECTION
+-- ============================================
 local function FindBall()
+    -- Search all descendants of Workspace
     for _, v in ipairs(Workspace:GetDescendants()) do
         if v:IsA("BasePart") or v:IsA("MeshPart") then
             local name = v.Name:lower()
-            if name:find("ball") or name:find("tennis") or name:find("sphere") then
-                return v
+            -- Check for various ball names used in the game
+            if name == "defaulttennisball" or name == "tennisball" or name == "ball" then
+                -- Make sure it's not a shadow or region
+                if not name:find("shadow") and not name:find("region") then
+                    -- Verify it has a reasonable size (actual ball, not a folder marker)
+                    local size = v.Size
+                    if size.X < 5 and size.Y < 5 and size.Z < 5 then
+                        return v
+                    end
+                end
             end
         end
     end
     return nil
 end
 
--- ESP for Players
+-- Alternative: find by looking for small sphere parts that move
+local function FindBallAlt()
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("BasePart") or v:IsA("MeshPart") then
+            local name = v.Name:lower()
+            if name:find("ball") and not name:find("shadow") and not name:find("region") and not name:find("target") then
+                local size = v.Size
+                if size.X < 5 and size.Y < 5 and size.Z < 5 then
+                    return v
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- ============================================
+-- ESP PLAYERS
+-- ============================================
 local function CreateESP(player)
     if player == LP then return end
 
@@ -145,7 +174,9 @@ local function CreateESP(player)
     end)
 end
 
--- Ball ESP
+-- ============================================
+-- BALL ESP (Fixed)
+-- ============================================
 local function CreateBallESP()
     local ballESP = Instance.new("BillboardGui")
     ballESP.Name = "BallESP"
@@ -183,14 +214,14 @@ local function CreateBallESP()
             return
         end
 
-        local ball = FindBall()
+        local ball = FindBall() or FindBallAlt()
 
-        if ball then
+        if ball and ball.Parent then
             ballESP.Adornee = ball
             ballESP.Enabled = true
             ballBox.Adornee = ball
             ballBox.Visible = true
-            ballBox.Size = ball.Size * CrystalHub.Features.HitboxMultiplier
+            ballBox.Size = ball.Size * math.max(CrystalHub.Features.HitboxMultiplier, 1)
         else
             ballESP.Enabled = false
             ballBox.Visible = false
@@ -198,14 +229,16 @@ local function CreateBallESP()
     end)
 end
 
--- Ball Trajectory
+-- ============================================
+-- BALL TRAJECTORY (Fixed)
+-- ============================================
 local function CreateTrajectory()
     local trajectoryPart = Instance.new("Part")
     trajectoryPart.Name = "TrajectoryLine"
     trajectoryPart.Parent = TrajectoryFolder
     trajectoryPart.Anchored = true
     trajectoryPart.CanCollide = false
-    trajectoryPart.Transparency = 0.3
+    trajectoryPart.Transparency = 1
     trajectoryPart.Color = Color3.fromRGB(0, 200, 255)
     trajectoryPart.Material = Enum.Material.Neon
     trajectoryPart.Size = Vector3.new(0.2, 0.2, 1)
@@ -216,9 +249,9 @@ local function CreateTrajectory()
             return
         end
 
-        local ball = FindBall()
+        local ball = FindBall() or FindBallAlt()
 
-        if ball and ball.Velocity.Magnitude > 1 then
+        if ball and ball.Parent and ball.Velocity.Magnitude > 1 then
             trajectoryPart.Transparency = 0.3
             local velocity = ball.Velocity
             local position = ball.Position
@@ -234,7 +267,9 @@ local function CreateTrajectory()
     end)
 end
 
--- Speed Boost Loop
+-- ============================================
+-- SPEED BOOST
+-- ============================================
 local function SpeedBoostLoop()
     while true do
         if CrystalHub.Features.SpeedBoost then
@@ -247,84 +282,109 @@ local function SpeedBoostLoop()
     end
 end
 
--- Double Jump (Fixed - using state tracking)
+-- ============================================
+-- DOUBLE JUMP (Fixed for mobile + PC)
+-- ============================================
 local function DoubleJumpLoop()
     local canDoubleJump = false
     local hasDoubleJumped = false
-    local lastState = false
 
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        if not CrystalHub.Features.DoubleJump then return end
-        if input.KeyCode ~= Enum.KeyCode.Space then return end
-
-        local humanoid = GetHumanoid()
-        local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-        if not humanoid or not hrp then return end
-
-        if humanoid.FloorMaterial ~= Enum.Material.Air then
-            canDoubleJump = true
-            hasDoubleJumped = false
-        elseif canDoubleJump and not hasDoubleJumped then
-            hasDoubleJumped = true
-            hrp.Velocity = Vector3.new(hrp.Velocity.X, 50, hrp.Velocity.Z)
-        end
-    end)
-
-    -- Reset when landing
-    LP.CharacterAdded:Connect(function(char)
+    local function setupCharacter(char)
         local humanoid = char:WaitForChild("Humanoid")
+
         humanoid.StateChanged:Connect(function(old, new)
-            if new == Enum.HumanoidStateType.Running or new == Enum.HumanoidStateType.Landed then
+            if new == Enum.HumanoidStateType.Running or new == Enum.HumanoidStateType.Landed or new == Enum.HumanoidStateType.GettingUp then
                 canDoubleJump = true
                 hasDoubleJumped = false
             end
         end)
-    end)
 
-    -- Setup for current character
-    if LP.Character then
-        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid.StateChanged:Connect(function(old, new)
-                if new == Enum.HumanoidStateType.Running or new == Enum.HumanoidStateType.Landed then
-                    canDoubleJump = true
-                    hasDoubleJumped = false
+        humanoid.Jumping:Connect(function()
+            if CrystalHub.Features.DoubleJump then
+                if not hasDoubleJumped and canDoubleJump then
+                    -- First jump after landing
+                    canDoubleJump = false
+                elseif hasDoubleJumped then
+                    -- Already double jumped
                 end
-            end)
-        end
+            end
+        end)
     end
+
+    if LP.Character then
+        setupCharacter(LP.Character)
+    end
+    LP.CharacterAdded:Connect(setupCharacter)
+
+    -- Input handler for jump
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if not CrystalHub.Features.DoubleJump then return end
+        if input.KeyCode ~= Enum.KeyCode.Space and input.UserInputType ~= Enum.UserInputType.Touch then return end
+
+        local char = LP.Character
+        if not char then return end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not hrp then return end
+
+        -- Check if in air and can double jump
+        if humanoid.FloorMaterial == Enum.Material.Air then
+            if canDoubleJump and not hasDoubleJumped then
+                hasDoubleJumped = true
+                hrp.Velocity = Vector3.new(hrp.Velocity.X, 50, hrp.Velocity.Z)
+            end
+        else
+            canDoubleJump = true
+            hasDoubleJumped = false
+        end
+    end)
 end
 
--- Anti Ragdoll (Fixed - more aggressive)
+-- ============================================
+-- ANTI RAGDOLL (Fixed - more comprehensive)
+-- ============================================
 local function AntiRagdollLoop()
     while true do
         if CrystalHub.Features.AntiRagdoll then
             local char = LP.Character
             if char then
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.PlatformStand = false
+                    humanoid.AutoRotate = true
+                    humanoid.Sit = false
+                    humanoid.BreakJointsOnDeath = false
+                end
+
+                -- Destroy ragdoll/stun objects
                 for _, v in ipairs(char:GetDescendants()) do
-                    if v:IsA("Humanoid") then
-                        v.PlatformStand = false
-                        v.AutoRotate = true
-                        v.Sit = false
-                    end
-                    if v:IsA("BodyVelocity") or v:IsA("BodyGyro") then
-                        if v.Name:lower():find("ragdoll") or v.Name:lower():find("stun") or v.Name:lower():find("knock") then
-                            v:Destroy()
+                    local n = v.Name:lower()
+                    if n:find("ragdoll") or n:find("stun") or n:find("knock") or n:find("fling") or n:find("stunned") or n:find("disable") then
+                        if not v:IsA("Humanoid") and not v:IsA("HumanoidRootPart") then
+                            if v:IsA("BasePart") and v.Parent == char then
+                                -- Keep character parts
+                            else
+                                pcall(function()
+                                    if v:IsA("ValueBase") then
+                                        v.Value = false
+                                    elseif v:IsA("BodyVelocity") or v:IsA("BodyGyro") or v:IsA("BodyPosition") then
+                                        v:Destroy()
+                                    elseif v:IsA("Script") or v:IsA("LocalScript") then
+                                        if n:find("ragdoll") or n:find("stun") then
+                                            v:Destroy()
+                                        end
+                                    end
+                                end)
+                            end
                         end
                     end
                 end
-                -- Also check for ragdoll values
+
+                -- Unanchor all character parts (ragdoll often anchors parts)
                 for _, v in ipairs(char:GetDescendants()) do
-                    local n = v.Name:lower()
-                    if n:find("ragdoll") or n:find("stun") or n:find("knock") or n:find("stunned") or n:find("fling") then
-                        if v:IsA("BoolValue") or v:IsA("IntValue") or v:IsA("NumberValue") then
-                            v.Value = false
-                        elseif v:IsA("BasePart") and not v:IsA("Humanoid") then
-                            -- Don't destroy character parts
-                        elseif not (v:IsA("Humanoid") or v:IsA("HumanoidRootPart") or v:IsA("BasePart") and v.Parent == char) then
-                            pcall(function() v:Destroy() end)
-                        end
+                    if v:IsA("BasePart") and v.Anchored then
+                        v.Anchored = false
                     end
                 end
             end
@@ -333,34 +393,42 @@ local function AntiRagdollLoop()
     end
 end
 
--- Spin Bot
+-- ============================================
+-- SPIN BOT
+-- ============================================
 local function SpinBotLoop()
     while true do
         if CrystalHub.Features.SpinBot then
-            local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(20), 0)
+            local char = LP.Character
+            if char then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(20), 0)
+                end
             end
         end
         task.wait(0.05)
     end
 end
 
--- Hitbox Loop (Fixed - stores original sizes)
+-- ============================================
+-- HITBOX MULTIPLIER (Fixed)
+-- ============================================
 local OriginalSizes = {}
 local function HitboxLoop()
     while true do
-        if CrystalHub.Features.HitboxMultiplier > 1 then
-            local ball = FindBall()
-            if ball then
+        local mult = CrystalHub.Features.HitboxMultiplier
+        if mult > 1 then
+            local ball = FindBall() or FindBallAlt()
+            if ball and ball.Parent then
                 if not OriginalSizes[ball] then
                     OriginalSizes[ball] = ball.Size
                 end
                 local orig = OriginalSizes[ball]
-                ball.Size = orig * CrystalHub.Features.HitboxMultiplier
+                ball.Size = orig * mult
             end
         else
-            -- Reset sizes when multiplier is 1
+            -- Reset sizes
             for obj, size in pairs(OriginalSizes) do
                 if obj and obj.Parent then
                     obj.Size = size
@@ -372,7 +440,9 @@ local function HitboxLoop()
     end
 end
 
+-- ============================================
 -- UI CREATION
+-- ============================================
 local function CreateUI()
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "CrystalHubNeoTennis"
@@ -380,7 +450,6 @@ local function CreateUI()
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     ScreenGui.ResetOnSpawn = false
 
-    -- Main frame
     local Main = Instance.new("Frame", ScreenGui)
     Main.Name = "Main"
     Main.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
@@ -522,7 +591,6 @@ local function CreateUI()
     local tabs = {}
     local currentTab = nil
 
-    -- CREATE TAB
     local function CreateTab(name)
         local btn = Instance.new("TextButton", TabPanel)
         btn.Name = name
@@ -549,7 +617,6 @@ local function CreateUI()
         ind.BackgroundTransparency = 1
         Instance.new("UICorner", ind).CornerRadius = UDim.new(0, 2)
 
-        -- Page
         local page = Instance.new("ScrollingFrame", Content)
         page.Name = name .. "Page"
         page.BackgroundTransparency = 1
@@ -608,7 +675,6 @@ local function CreateUI()
         return page
     end
 
-    -- CREATE TOGGLE (Fixed - using TextButton for reliable clicking)
     local function CreateToggle(parent, text, flag)
         local frame = Instance.new("Frame", parent)
         frame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
@@ -659,7 +725,6 @@ local function CreateUI()
             end
         end
 
-        -- Use a clickable button overlay
         local clickBtn = Instance.new("TextButton", frame)
         clickBtn.BackgroundTransparency = 1
         clickBtn.Size = UDim2.new(1, 0, 1, 0)
@@ -675,7 +740,6 @@ local function CreateUI()
         return frame
     end
 
-    -- CREATE SLIDER (Completely rewritten - fixed dragging)
     local function CreateSlider(parent, text, min, max, default, flag)
         local frame = Instance.new("Frame", parent)
         frame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
@@ -728,7 +792,6 @@ local function CreateUI()
         knob.Size = UDim2.new(0, 12, 0, 12)
         Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
 
-        -- Clickable area for the whole slider
         local clickArea = Instance.new("TextButton", frame)
         clickArea.BackgroundTransparency = 1
         clickArea.Position = UDim2.new(0, 12, 0, 28)
@@ -744,7 +807,7 @@ local function CreateUI()
             local trackAbsSize = track.AbsoluteSize.X
             local pos = math.clamp((x - trackAbsPos) / trackAbsSize, 0, 1)
             local value = min + (pos * (max - min))
-            value = math.floor(value * 10) / 10  -- Round to 1 decimal
+            value = math.floor(value * 10) / 10
             CrystalHub.Features[flag] = value
             valLabel.Text = string.format("%.1fx", value)
             fill.Size = UDim2.new(pos, 0, 1, 0)
@@ -774,7 +837,6 @@ local function CreateUI()
         return frame
     end
 
-    -- CREATE LABEL
     local function CreateLabel(parent, text)
         local frame = Instance.new("Frame", parent)
         frame.BackgroundTransparency = 1
@@ -832,37 +894,25 @@ local function CreateUI()
     return ScreenGui
 end
 
--- Initialize ESP for existing players
+-- ============================================
+-- INITIALIZATION
+-- ============================================
 for _, p in ipairs(Players:GetPlayers()) do
     CreateESP(p)
 end
 Players.PlayerAdded:Connect(CreateESP)
 
--- Initialize features
 CreateBallESP()
 CreateTrajectory()
 
--- Create UI
 CreateUI()
 
--- Start loops
-pcall(function()
-    task.spawn(SpeedBoostLoop)
-end)
-pcall(function()
-    task.spawn(DoubleJumpLoop)
-end)
-pcall(function()
-    task.spawn(AntiRagdollLoop)
-end)
-pcall(function()
-    task.spawn(SpinBotLoop)
-end)
-pcall(function()
-    task.spawn(HitboxLoop)
-end)
+pcall(function() task.spawn(SpeedBoostLoop) end)
+pcall(function() task.spawn(DoubleJumpLoop) end)
+pcall(function() task.spawn(AntiRagdollLoop) end)
+pcall(function() task.spawn(SpinBotLoop) end)
+pcall(function() task.spawn(HitboxLoop) end)
 
--- Notification
 pcall(function()
     game.StarterGui:SetCore("SendNotification", {
         Title = "Crystal Hub",
