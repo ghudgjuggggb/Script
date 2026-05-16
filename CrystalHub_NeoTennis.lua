@@ -16,7 +16,6 @@ local CrystalHub = {
 }
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -24,6 +23,7 @@ local TweenService = game:GetService("TweenService")
 local LP = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
+-- Folders for ESP
 local ESPFolder = Instance.new("Folder")
 ESPFolder.Name = "CrystalESP"
 ESPFolder.Parent = Workspace
@@ -32,6 +32,7 @@ local TrajectoryFolder = Instance.new("Folder")
 TrajectoryFolder.Name = "CrystalTrajectory"
 TrajectoryFolder.Parent = Workspace
 
+-- Utility functions
 local function GetCharacter()
     return LP.Character or LP.CharacterAdded:Wait()
 end
@@ -46,6 +47,20 @@ local function GetHumanoid()
     return char:FindFirstChildOfClass("Humanoid")
 end
 
+-- Find ball in workspace (improved detection)
+local function FindBall()
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("BasePart") or v:IsA("MeshPart") then
+            local name = v.Name:lower()
+            if name:find("ball") or name:find("tennis") or name:find("sphere") then
+                return v
+            end
+        end
+    end
+    return nil
+end
+
+-- ESP for Players
 local function CreateESP(player)
     if player == LP then return end
 
@@ -130,6 +145,7 @@ local function CreateESP(player)
     end)
 end
 
+-- Ball ESP
 local function CreateBallESP()
     local ballESP = Instance.new("BillboardGui")
     ballESP.Name = "BallESP"
@@ -167,13 +183,7 @@ local function CreateBallESP()
             return
         end
 
-        local ball = nil
-        for _, v in ipairs(Workspace:GetDescendants()) do
-            if v.Name:lower():find("ball") and (v:IsA("BasePart") or v:IsA("MeshPart")) then
-                ball = v
-                break
-            end
-        end
+        local ball = FindBall()
 
         if ball then
             ballESP.Adornee = ball
@@ -188,6 +198,7 @@ local function CreateBallESP()
     end)
 end
 
+-- Ball Trajectory
 local function CreateTrajectory()
     local trajectoryPart = Instance.new("Part")
     trajectoryPart.Name = "TrajectoryLine"
@@ -205,13 +216,7 @@ local function CreateTrajectory()
             return
         end
 
-        local ball = nil
-        for _, v in ipairs(Workspace:GetDescendants()) do
-            if v.Name:lower():find("ball") and (v:IsA("BasePart") or v:IsA("MeshPart")) then
-                ball = v
-                break
-            end
-        end
+        local ball = FindBall()
 
         if ball and ball.Velocity.Magnitude > 1 then
             trajectoryPart.Transparency = 0.3
@@ -229,6 +234,7 @@ local function CreateTrajectory()
     end)
 end
 
+-- Speed Boost Loop
 local function SpeedBoostLoop()
     while true do
         if CrystalHub.Features.SpeedBoost then
@@ -241,9 +247,11 @@ local function SpeedBoostLoop()
     end
 end
 
+-- Double Jump (Fixed - using state tracking)
 local function DoubleJumpLoop()
     local canDoubleJump = false
     local hasDoubleJumped = false
+    local lastState = false
 
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
@@ -251,60 +259,120 @@ local function DoubleJumpLoop()
         if input.KeyCode ~= Enum.KeyCode.Space then return end
 
         local humanoid = GetHumanoid()
-        if not humanoid then return end
+        local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not hrp then return end
 
         if humanoid.FloorMaterial ~= Enum.Material.Air then
             canDoubleJump = true
             hasDoubleJumped = false
         elseif canDoubleJump and not hasDoubleJumped then
             hasDoubleJumped = true
-            local hrp = GetHRP()
             hrp.Velocity = Vector3.new(hrp.Velocity.X, 50, hrp.Velocity.Z)
         end
     end)
-end
 
-local function AntiRagdollLoop()
-    while true do
-        if CrystalHub.Features.AntiRagdoll then
-            local char = GetCharacter()
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("Humanoid") then
-                    v.PlatformStand = false
-                    v.AutoRotate = true
-                end
-                if v.Name:lower():find("ragdoll") or v.Name:lower():find("stun") or v.Name:lower():find("knock") then
-                    v:Destroy()
-                end
+    -- Reset when landing
+    LP.CharacterAdded:Connect(function(char)
+        local humanoid = char:WaitForChild("Humanoid")
+        humanoid.StateChanged:Connect(function(old, new)
+            if new == Enum.HumanoidStateType.Running or new == Enum.HumanoidStateType.Landed then
+                canDoubleJump = true
+                hasDoubleJumped = false
             end
+        end)
+    end)
+
+    -- Setup for current character
+    if LP.Character then
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.StateChanged:Connect(function(old, new)
+                if new == Enum.HumanoidStateType.Running or new == Enum.HumanoidStateType.Landed then
+                    canDoubleJump = true
+                    hasDoubleJumped = false
+                end
+            end)
         end
-        task.wait(0.1)
     end
 end
 
-local function SpinBotLoop()
+-- Anti Ragdoll (Fixed - more aggressive)
+local function AntiRagdollLoop()
     while true do
-        if CrystalHub.Features.SpinBot then
-            local hrp = GetHRP()
-            hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(20), 0)
+        if CrystalHub.Features.AntiRagdoll then
+            local char = LP.Character
+            if char then
+                for _, v in ipairs(char:GetDescendants()) do
+                    if v:IsA("Humanoid") then
+                        v.PlatformStand = false
+                        v.AutoRotate = true
+                        v.Sit = false
+                    end
+                    if v:IsA("BodyVelocity") or v:IsA("BodyGyro") then
+                        if v.Name:lower():find("ragdoll") or v.Name:lower():find("stun") or v.Name:lower():find("knock") then
+                            v:Destroy()
+                        end
+                    end
+                end
+                -- Also check for ragdoll values
+                for _, v in ipairs(char:GetDescendants()) do
+                    local n = v.Name:lower()
+                    if n:find("ragdoll") or n:find("stun") or n:find("knock") or n:find("stunned") or n:find("fling") then
+                        if v:IsA("BoolValue") or v:IsA("IntValue") or v:IsA("NumberValue") then
+                            v.Value = false
+                        elseif v:IsA("BasePart") and not v:IsA("Humanoid") then
+                            -- Don't destroy character parts
+                        elseif not (v:IsA("Humanoid") or v:IsA("HumanoidRootPart") or v:IsA("BasePart") and v.Parent == char) then
+                            pcall(function() v:Destroy() end)
+                        end
+                    end
+                end
+            end
         end
         task.wait(0.05)
     end
 end
 
-local function HitboxLoop()
+-- Spin Bot
+local function SpinBotLoop()
     while true do
-        if CrystalHub.Features.HitboxMultiplier > 1 then
-            for _, v in ipairs(Workspace:GetDescendants()) do
-                if v.Name:lower():find("ball") and (v:IsA("BasePart") or v:IsA("MeshPart")) then
-                    v.Size = Vector3.new(2, 2, 2) * CrystalHub.Features.HitboxMultiplier
-                end
+        if CrystalHub.Features.SpinBot then
+            local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(20), 0)
             end
         end
-        task.wait(1)
+        task.wait(0.05)
     end
 end
 
+-- Hitbox Loop (Fixed - stores original sizes)
+local OriginalSizes = {}
+local function HitboxLoop()
+    while true do
+        if CrystalHub.Features.HitboxMultiplier > 1 then
+            local ball = FindBall()
+            if ball then
+                if not OriginalSizes[ball] then
+                    OriginalSizes[ball] = ball.Size
+                end
+                local orig = OriginalSizes[ball]
+                ball.Size = orig * CrystalHub.Features.HitboxMultiplier
+            end
+        else
+            -- Reset sizes when multiplier is 1
+            for obj, size in pairs(OriginalSizes) do
+                if obj and obj.Parent then
+                    obj.Size = size
+                end
+            end
+            OriginalSizes = {}
+        end
+        task.wait(0.1)
+    end
+end
+
+-- UI CREATION
 local function CreateUI()
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "CrystalHubNeoTennis"
@@ -312,7 +380,7 @@ local function CreateUI()
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     ScreenGui.ResetOnSpawn = false
 
-    -- Main frame - responsive sizing
+    -- Main frame
     local Main = Instance.new("Frame", ScreenGui)
     Main.Name = "Main"
     Main.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
@@ -428,7 +496,7 @@ local function CreateUI()
         end
     end)
 
-    -- Tab Panel (Left Sidebar)
+    -- Tab Panel
     local TabPanel = Instance.new("Frame", Main)
     TabPanel.Name = "TabPanel"
     TabPanel.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
@@ -442,7 +510,7 @@ local function CreateUI()
     TabDiv.Position = UDim2.new(1, -1, 0, 0)
     TabDiv.Size = UDim2.new(0, 1, 1, 0)
 
-    -- Content Area (Right Side)
+    -- Content Area
     local Content = Instance.new("Frame", Main)
     Content.Name = "Content"
     Content.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
@@ -454,7 +522,8 @@ local function CreateUI()
     local tabs = {}
     local currentTab = nil
 
-    local function CreateTab(name, icon)
+    -- CREATE TAB
+    local function CreateTab(name)
         local btn = Instance.new("TextButton", TabPanel)
         btn.Name = name
         btn.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
@@ -473,14 +542,14 @@ local function CreateUI()
 
         local ind = Instance.new("Frame", btn)
         ind.Name = "Indicator"
-        ind.BackgroundColor3 = Color3.fromRGB(200, 200, 210)
+        ind.BackgroundColor3 = Color3.fromRGB(0, 255, 170)
         ind.BorderSizePixel = 0
         ind.Position = UDim2.new(0, 0, 0, 0)
         ind.Size = UDim2.new(0, 3, 1, 0)
         ind.BackgroundTransparency = 1
         Instance.new("UICorner", ind).CornerRadius = UDim.new(0, 2)
 
-        -- Page/Content for this tab
+        -- Page
         local page = Instance.new("ScrollingFrame", Content)
         page.Name = name .. "Page"
         page.BackgroundTransparency = 1
@@ -489,7 +558,7 @@ local function CreateUI()
         page.ScrollBarThickness = 3
         page.ScrollBarImageColor3 = Color3.fromRGB(40, 40, 50)
         page.Visible = false
-        page.CanvasSize = UDim2.new(0, 0, 0, 0) -- Will be auto-updated
+        page.CanvasSize = UDim2.new(0, 0, 0, 0)
         page.AutomaticCanvasSize = Enum.AutomaticSize.Y
         page.ScrollingDirection = Enum.ScrollingDirection.Y
 
@@ -505,7 +574,6 @@ local function CreateUI()
 
         table.insert(tabs, {Button = btn, Page = page, Name = name})
 
-        -- Hover effects
         btn.MouseEnter:Connect(function()
             if currentTab ~= name then
                 TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0.6}):Play()
@@ -517,7 +585,6 @@ local function CreateUI()
             end
         end)
 
-        -- Click handler
         btn.MouseButton1Click:Connect(function()
             for _, t in ipairs(tabs) do
                 t.Page.Visible = false
@@ -525,7 +592,6 @@ local function CreateUI()
                 TweenService:Create(t.Button, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(140, 140, 150)}):Play()
                 TweenService:Create(t.Button.Indicator, TweenInfo.new(0.2), {BackgroundTransparency = 1}):Play()
             end
-
             page.Visible = true
             TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0.4}):Play()
             TweenService:Create(btn, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(200, 200, 210)}):Play()
@@ -542,6 +608,7 @@ local function CreateUI()
         return page
     end
 
+    -- CREATE TOGGLE (Fixed - using TextButton for reliable clicking)
     local function CreateToggle(parent, text, flag)
         local frame = Instance.new("Frame", parent)
         frame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
@@ -580,9 +647,7 @@ local function CreateUI()
 
         local enabled = false
 
-        local function toggle()
-            enabled = not enabled
-            CrystalHub.Features[flag] = enabled
+        local function updateToggle()
             if enabled then
                 TweenService:Create(switch, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(0, 255, 170)}):Play()
                 TweenService:Create(knob, TweenInfo.new(0.2), {Position = UDim2.new(1, -19, 0.5, -8)}):Play()
@@ -594,15 +659,23 @@ local function CreateUI()
             end
         end
 
-        frame.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                toggle()
-            end
+        -- Use a clickable button overlay
+        local clickBtn = Instance.new("TextButton", frame)
+        clickBtn.BackgroundTransparency = 1
+        clickBtn.Size = UDim2.new(1, 0, 1, 0)
+        clickBtn.Text = ""
+        clickBtn.ZIndex = 10
+
+        clickBtn.MouseButton1Click:Connect(function()
+            enabled = not enabled
+            CrystalHub.Features[flag] = enabled
+            updateToggle()
         end)
 
         return frame
     end
 
+    -- CREATE SLIDER (Completely rewritten - fixed dragging)
     local function CreateSlider(parent, text, min, max, default, flag)
         local frame = Instance.new("Frame", parent)
         frame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
@@ -655,42 +728,53 @@ local function CreateUI()
         knob.Size = UDim2.new(0, 12, 0, 12)
         Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
 
+        -- Clickable area for the whole slider
+        local clickArea = Instance.new("TextButton", frame)
+        clickArea.BackgroundTransparency = 1
+        clickArea.Position = UDim2.new(0, 12, 0, 28)
+        clickArea.Size = UDim2.new(1, -24, 0, 20)
+        clickArea.Text = ""
+        clickArea.ZIndex = 5
+
         local dragging = false
         local uis = game:GetService("UserInputService")
 
-        local function update(input)
-            local pos = math.clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        local function setValueFromPos(x)
+            local trackAbsPos = track.AbsolutePosition.X
+            local trackAbsSize = track.AbsoluteSize.X
+            local pos = math.clamp((x - trackAbsPos) / trackAbsSize, 0, 1)
             local value = min + (pos * (max - min))
+            value = math.floor(value * 10) / 10  -- Round to 1 decimal
             CrystalHub.Features[flag] = value
             valLabel.Text = string.format("%.1fx", value)
             fill.Size = UDim2.new(pos, 0, 1, 0)
             knob.Position = UDim2.new(pos, -7, 0.5, -6)
+            return value
         end
 
-        knob.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        clickArea.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
+                setValueFromPos(input.Position.X)
             end
         end)
-        uis.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = false
-            end
-        end)
+
         uis.InputChanged:Connect(function(input)
-            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                update(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                setValueFromPos(input.Position.X)
             end
         end)
-        track.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                update(input)
+
+        uis.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
             end
         end)
 
         return frame
     end
 
+    -- CREATE LABEL
     local function CreateLabel(parent, text)
         local frame = Instance.new("Frame", parent)
         frame.BackgroundTransparency = 1
@@ -721,18 +805,18 @@ local function CreateUI()
     local CombatTab = CreateTab("Combat")
     local MiscTab = CreateTab("Misc")
 
-    -- Visual Tab Content
+    -- Visual Tab
     CreateLabel(VisualTab, "VISUAL FEATURES")
     CreateToggle(VisualTab, "ESP Players", "ESPPlayers")
     CreateToggle(VisualTab, "ESP Ball", "ESPBall")
     CreateToggle(VisualTab, "Ball Trajectory", "BallTrajectory")
 
-    -- Combat Tab Content
+    -- Combat Tab
     CreateLabel(CombatTab, "COMBAT FEATURES")
     CreateToggle(CombatTab, "Spin Bot", "SpinBot")
     CreateSlider(CombatTab, "Hitbox Multiplier", 1, 3, 1, "HitboxMultiplier")
 
-    -- Misc Tab Content
+    -- Misc Tab
     CreateLabel(MiscTab, "MOVEMENT FEATURES")
     CreateToggle(MiscTab, "Speed Boost", "SpeedBoost")
     CreateToggle(MiscTab, "Double Jump", "DoubleJump")
@@ -748,24 +832,41 @@ local function CreateUI()
     return ScreenGui
 end
 
+-- Initialize ESP for existing players
 for _, p in ipairs(Players:GetPlayers()) do
     CreateESP(p)
 end
 Players.PlayerAdded:Connect(CreateESP)
 
+-- Initialize features
 CreateBallESP()
 CreateTrajectory()
 
+-- Create UI
 CreateUI()
 
-task.spawn(SpeedBoostLoop)
-task.spawn(DoubleJumpLoop)
-task.spawn(AntiRagdollLoop)
-task.spawn(SpinBotLoop)
-task.spawn(HitboxLoop)
+-- Start loops
+pcall(function()
+    task.spawn(SpeedBoostLoop)
+end)
+pcall(function()
+    task.spawn(DoubleJumpLoop)
+end)
+pcall(function()
+    task.spawn(AntiRagdollLoop)
+end)
+pcall(function()
+    task.spawn(SpinBotLoop)
+end)
+pcall(function()
+    task.spawn(HitboxLoop)
+end)
 
-game.StarterGui:SetCore("SendNotification", {
-    Title = "Crystal Hub",
-    Text = CrystalHub.Game .. " | v" .. CrystalHub.Version .. " | Press Insert to toggle",
-    Duration = 5,
-})
+-- Notification
+pcall(function()
+    game.StarterGui:SetCore("SendNotification", {
+        Title = "Crystal Hub",
+        Text = CrystalHub.Game .. " | v" .. CrystalHub.Version .. " | Press Insert to toggle",
+        Duration = 5,
+    })
+end)
