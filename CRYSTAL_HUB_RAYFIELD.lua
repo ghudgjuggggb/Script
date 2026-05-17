@@ -23,6 +23,10 @@ local ESPFolder = Instance.new("Folder")
 ESPFolder.Name = "_CrystalESP"
 ESPFolder.Parent = Workspace
 
+local TrajectoryFolder = Instance.new("Folder")
+TrajectoryFolder.Name = "_CrystalTrajectory"
+TrajectoryFolder.Parent = Workspace
+
 local BallCache = nil
 local BallCacheTime = 0
 
@@ -259,43 +263,99 @@ end
 
 local function initTrajectory()
 	local lines = {}
-	for i = 1, 15 do
-		local p = Instance.new("Part")
-		p.Name = "TrajDot" .. i
-		p.Shape = Enum.PartType.Ball
-		p.Material = Enum.Material.Neon
-		p.Color = Color3.fromRGB(0, 200, 255)
-		p.Size = Vector3.new(0.25, 0.25, 0.25)
-		p.Anchored = true
-		p.CanCollide = false
-		p.CastShadow = false
-		p.Transparency = 1
-		p.Parent = TrajectoryFolder
-		lines[i] = p
+
+	local function makeDots()
+		for _, old in ipairs(lines) do pcall(function() old:Destroy() end) end
+		lines = {}
+		for i = 1, 20 do
+			local p = Instance.new("Part")
+			p.Name = "TrajDot" .. i
+			p.Shape = Enum.PartType.Ball
+			p.Material = Enum.Material.Neon
+			p.Color = Color3.fromRGB(0, 200, 255)
+			p.Size = Vector3.new(0.3, 0.3, 0.3)
+			p.Anchored = true
+			p.CanCollide = false
+			p.CastShadow = false
+			p.Transparency = 1
+			p.Parent = TrajectoryFolder
+			lines[i] = p
+		end
+	end
+
+	makeDots()
+
+	TrajectoryFolder.ChildRemoved:Connect(function()
+		task.delay(0.1, makeDots)
+	end)
+
+	local lastPos = nil
+	local lastTime = nil
+	local smoothVel = Vector3.new(0, 0, 0)
+
+	local function getBallVelocity(ball)
+		local vel = nil
+
+		vel = safeCall(function() return ball.AssemblyLinearVelocity end)
+		if vel and vel.Magnitude > 0.1 then return vel end
+
+		vel = safeCall(function() return ball.Velocity end)
+		if vel and vel.Magnitude > 0.1 then return vel end
+
+		if lastPos and lastTime then
+			local dt = tick() - lastTime
+			if dt > 0 and dt < 0.5 then
+				return (ball.Position - lastPos) / dt
+			end
+		end
+
+		return Vector3.new(0, 0, 0)
 	end
 
 	RunService.RenderStepped:Connect(function()
 		if not State.BallTrajectory then
-			for _, p in ipairs(lines) do p.Transparency = 1 end
+			for _, p in ipairs(lines) do
+				if p and p.Parent then p.Transparency = 1 end
+			end
+			lastPos = nil
+			lastTime = nil
 			return
 		end
 
 		local ball = findBall()
 		if not ball or not ball.Parent then
-			for _, p in ipairs(lines) do p.Transparency = 1 end
+			for _, p in ipairs(lines) do
+				if p and p.Parent then p.Transparency = 1 end
+			end
+			lastPos = nil
+			lastTime = nil
+			return
+		end
+
+		local rawVel = getBallVelocity(ball)
+		smoothVel = smoothVel:Lerp(rawVel, 0.4)
+
+		lastPos = ball.Position
+		lastTime = tick()
+
+		if smoothVel.Magnitude < 0.5 then
+			for _, p in ipairs(lines) do
+				if p and p.Parent then p.Transparency = 1 end
+			end
 			return
 		end
 
 		local pos = ball.Position
-		local vel = ball.Velocity
 		local g = Vector3.new(0, -Workspace.Gravity, 0)
-		local dt = 0.08
+		local dt = 0.07
 
 		for i, dot in ipairs(lines) do
-			local t = i * dt
-			local predPos = pos + vel * t + 0.5 * g * t * t
-			dot.Position = predPos
-			dot.Transparency = 0.2 + (i / #lines) * 0.7
+			if dot and dot.Parent then
+				local t = i * dt
+				local predPos = pos + smoothVel * t + 0.5 * g * t * t
+				dot.Position = predPos
+				dot.Transparency = 0.15 + (i / #lines) * 0.75
+			end
 		end
 	end)
 end
@@ -437,10 +497,6 @@ local function initHitbox()
 	end)
 end
 
-local TrajectoryFolder = Instance.new("Folder")
-TrajectoryFolder.Name = "_CrystalTrajectory"
-TrajectoryFolder.Parent = Workspace
-
 task.spawn(initESP)
 task.spawn(initBallESP)
 task.spawn(initTrajectory)
@@ -449,6 +505,63 @@ task.spawn(initDoubleJump)
 task.spawn(initAntiRagdoll)
 task.spawn(initSpinBot)
 task.spawn(initHitbox)
+
+local function initProtection()
+	local defaultSpeed = 16
+
+	RunService.Heartbeat:Connect(function()
+		local hum = getHum()
+		if hum then
+			if State.SpeedBoost and hum.WalkSpeed < State.SpeedValue then
+				hum.WalkSpeed = State.SpeedValue
+			end
+			if State.AntiRagdoll and hum.PlatformStand then
+				hum.PlatformStand = false
+			end
+		end
+
+		if not ESPFolder or not ESPFolder.Parent then
+			ESPFolder = Instance.new("Folder")
+			ESPFolder.Name = "_CrystalESP"
+			ESPFolder.Parent = Workspace
+		end
+
+		if not TrajectoryFolder or not TrajectoryFolder.Parent then
+			TrajectoryFolder = Instance.new("Folder")
+			TrajectoryFolder.Name = "_CrystalTrajectory"
+			TrajectoryFolder.Parent = Workspace
+		end
+	end)
+
+	local function protectChar(char)
+		if not char then return end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum then return end
+
+		hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+			if State.SpeedBoost and hum.WalkSpeed ~= State.SpeedValue then
+				task.defer(function() hum.WalkSpeed = State.SpeedValue end)
+			end
+		end)
+
+		hum:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+			if State.AntiRagdoll and hum.PlatformStand then
+				task.defer(function() hum.PlatformStand = false end)
+			end
+		end)
+
+		hum:GetPropertyChangedSignal("Sit"):Connect(function()
+			if State.AntiRagdoll and hum.Sit then
+				task.defer(function() hum.Sit = false end)
+			end
+		end)
+	end
+
+	if LP.Character then protectChar(LP.Character) end
+	LP.CharacterAdded:Connect(protectChar)
+end
+
+task.spawn(initProtection)
 
 local Window = Rayfield:CreateWindow({
 	Name = "Crystal Hub",
