@@ -12,6 +12,14 @@ if not LP then return end
 local PlayerGui = LP:WaitForChild("PlayerGui", 10)
 if not PlayerGui then return end
 
+local isMobile   = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local SW, SH
+do
+	local ok, res = pcall(function() return UserInputService:GetScreenSize() end)
+	if ok and res then SW, SH = res.X, res.Y
+	else SW, SH = 1280, 720 end
+end
+
 local CONFIG = {
 	Prompt          = "[crystal@roblox ~]$ ",
 	BG              = Color3.fromRGB(8,  8,  12),
@@ -27,9 +35,15 @@ local CONFIG = {
 	Warn            = Color3.fromRGB(220, 180, 60),
 	Prompt_Col      = Color3.fromRGB(100, 160, 255),
 	Font            = Enum.Font.Code,
-	TextSize        = 13,
-	Width           = 720,
-	Height          = 480,
+	TextSize        = isMobile and 15 or 13,
+	Width           = isMobile and math.floor(SW * 0.96) or 720,
+	Height          = isMobile and math.floor(SH * 0.68) or 480,
+	TitleH          = isMobile and 54 or 44,
+	InputH          = isMobile and 50 or 40,
+	BtnH            = isMobile and 38 or 26,
+	isMobile        = isMobile,
+	SW              = SW,
+	SH              = SH,
 }
 
 local State = {
@@ -68,7 +82,8 @@ ScreenGui.Parent          = PlayerGui
 local Main = Instance.new("Frame", ScreenGui)
 Main.Name                 = "Main"
 Main.Size                 = UDim2.new(0, CONFIG.Width, 0, CONFIG.Height)
-Main.Position             = UDim2.new(0.5, -CONFIG.Width/2, 0.5, -CONFIG.Height/2)
+Main.AnchorPoint          = Vector2.new(0.5, 0.5)
+Main.Position             = isMobile and UDim2.new(0.5,0, 0.02,0) or UDim2.new(0.5,-CONFIG.Width/2, 0.5,-CONFIG.Height/2)
 Main.BackgroundColor3     = CONFIG.BG
 Main.BorderSizePixel      = 0
 Main.Active               = true
@@ -80,7 +95,7 @@ end
 
 -- Title Bar
 local TitleBar = Instance.new("Frame", Main)
-TitleBar.Size             = UDim2.new(1, 0, 0, 44)
+TitleBar.Size             = UDim2.new(1, 0, 0, CONFIG.TitleH)
 TitleBar.BackgroundColor3 = CONFIG.TitleBG
 TitleBar.BorderSizePixel  = 0
 do
@@ -115,8 +130,8 @@ TitleText.TextXAlignment     = Enum.TextXAlignment.Center
 -- Window buttons
 local function makeBtn(x, icon, col)
 	local btn = Instance.new("TextButton", TitleBar)
-	btn.Size                = UDim2.new(0,26,0,26)
-	btn.Position            = UDim2.new(0,x,0.5,-13)
+	btn.Size                = UDim2.new(0,CONFIG.BtnH,0,CONFIG.BtnH)
+	btn.Position            = UDim2.new(0,x,0.5,-CONFIG.BtnH/2)
 	btn.BackgroundColor3    = col or Color3.fromRGB(38,38,50)
 	btn.Text                = icon
 	btn.TextColor3          = CONFIG.Muted
@@ -130,15 +145,15 @@ local function makeBtn(x, icon, col)
 	return btn
 end
 
-local BtnMin   = makeBtn(CONFIG.Width-90, "─")
-local BtnMax   = makeBtn(CONFIG.Width-60, "□")
-local BtnClose = makeBtn(CONFIG.Width-30, "✕", Color3.fromRGB(50,20,20))
+local BtnMin   = makeBtn(CONFIG.Width - CONFIG.BtnH*3 - 6, "─")
+local BtnMax   = makeBtn(CONFIG.Width - CONFIG.BtnH*2 - 4, "□")
+local BtnClose = makeBtn(CONFIG.Width - CONFIG.BtnH - 2, "✕", Color3.fromRGB(50,20,20))
 
 -- Output
 local Output = Instance.new("ScrollingFrame", Main)
 Output.Name                  = "Output"
-Output.Size                  = UDim2.new(1,-24, 1,-92)
-Output.Position              = UDim2.new(0,12, 0,52)
+Output.Size                  = UDim2.new(1,-24, 1, isMobile and -148 or -92)
+Output.Position              = UDim2.new(0,12, 0, CONFIG.TitleH+8)
 Output.BackgroundTransparency = 1
 Output.BorderSizePixel       = 0
 Output.ScrollBarThickness    = 3
@@ -152,14 +167,14 @@ OLayout.Padding    = UDim.new(0,2)
 -- Separator
 local Sep = Instance.new("Frame", Main)
 Sep.Size              = UDim2.new(1,0,0,1)
-Sep.Position          = UDim2.new(0,0,1,-40)
+Sep.Position          = UDim2.new(0,0,1,-CONFIG.InputH)
 Sep.BackgroundColor3  = CONFIG.Border
 Sep.BorderSizePixel   = 0
 
 -- Input bar
 local InputBar = Instance.new("Frame", Main)
-InputBar.Size             = UDim2.new(1,0,0,40)
-InputBar.Position         = UDim2.new(0,0,1,-40)
+InputBar.Size             = UDim2.new(1,0,0,CONFIG.InputH)
+InputBar.Position         = UDim2.new(0,0,1,-CONFIG.InputH)
 InputBar.BackgroundColor3 = CONFIG.InputBG
 InputBar.BorderSizePixel  = 0
 do
@@ -1251,41 +1266,46 @@ BtnMax.MouseButton1Click:Connect(function()
 	):Play()
 end)
 
--- Drag
+-- Drag (Mouse + Touch)
 local dragging, dragStart, startPos
+
+local function onDragStart(pos)
+	dragging  = true
+	dragStart = pos
+	startPos  = Main.Position
+end
+local function onDragMove(pos)
+	if not dragging then return end
+	local delta = pos - dragStart
+	Main.Position = UDim2.new(
+		startPos.X.Scale, startPos.X.Offset + delta.X,
+		startPos.Y.Scale, startPos.Y.Offset + delta.Y
+	)
+end
+local function onDragEnd()
+	dragging = false
+end
+
 TitleBar.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging  = true
-		dragStart = input.Position
-		startPos  = Main.Position
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or
+	   input.UserInputType == Enum.UserInputType.Touch then
+		onDragStart(Vector2.new(input.Position.X, input.Position.Y))
 	end
 end)
-
 UserInputService.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local delta = input.Position - dragStart
-		Main.Position = UDim2.new(
-			startPos.X.Scale, startPos.X.Offset + delta.X,
-			startPos.Y.Scale, startPos.Y.Offset + delta.Y
-		)
+	if input.UserInputType == Enum.UserInputType.MouseMovement or
+	   input.UserInputType == Enum.UserInputType.Touch then
+		onDragMove(Vector2.new(input.Position.X, input.Position.Y))
 	end
 end)
-
 UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = false
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or
+	   input.UserInputType == Enum.UserInputType.Touch then
+		onDragEnd()
 	end
 end)
 
--- Toggle visibility
-UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	if input.KeyCode == Enum.KeyCode.F9 then
-		State.visible = not State.visible
-		Main.Visible  = State.visible
-		if State.visible then InputBox:CaptureFocus() end
-	end
-end)
+-- Toggle (handled below)
 
 -- =============================================
 -- SPLASH SCREEN
@@ -1919,5 +1939,198 @@ end, {"reset","killall2","panic"})
 -- INIT RECORD
 -- =============================================
 State.startTime = tick()
+
+-- =============================================
+-- MOBILE: QUICK BUTTONS + TOUCH INPUT
+-- =============================================
+if CONFIG.isMobile then
+
+	-- Quick command bar (горизонтальная прокрутка снизу)
+	local quickBar = Instance.new("ScrollingFrame", Main)
+	quickBar.Name                  = "QuickBar"
+	quickBar.Size                  = UDim2.new(1,0, 0, 52)
+	quickBar.Position              = UDim2.new(0,0, 1, -(CONFIG.InputH + 56))
+	quickBar.BackgroundColor3      = Color3.fromRGB(10,10,16)
+	quickBar.BorderSizePixel       = 0
+	quickBar.ScrollBarThickness    = 0
+	quickBar.ScrollingDirection    = Enum.ScrollingDirection.X
+	quickBar.AutomaticCanvasSize   = Enum.AutomaticSize.X
+	quickBar.CanvasSize            = UDim2.new(0,0,0,0)
+	quickBar.ClipsDescendants      = true
+
+	local qLayout = Instance.new("UIListLayout", quickBar)
+	qLayout.FillDirection  = Enum.FillDirection.Horizontal
+	qLayout.SortOrder      = Enum.SortOrder.LayoutOrder
+	qLayout.Padding        = UDim.new(0,6)
+	qLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+
+	local qPad = Instance.new("UIPadding", quickBar)
+	qPad.PaddingLeft = UDim.new(0,8); qPad.PaddingRight = UDim.new(0,8)
+
+	local quickCmds = {
+		{"🚀 Fly",       "fly"},
+		{"👻 Noclip",    "noclip"},
+		{"🛡 God",       "god"},
+		{"⚡ Speed 60",  "speed 60"},
+		{"👥 ESP",       "espall"},
+		{"✨ Bright",    "fullbright"},
+		{"🌙 Night",     "night"},
+		{"☀ Day",       "day"},
+		{"💊 Heal",      "heal"},
+		{"🌀 Spin",      "spin"},
+		{"📷 Freecam",   "freecam"},
+		{"💥 Explode",   "explode"},
+		{"🔄 Rejoin",    "rejoin"},
+		{"🏁 Spawn",     "tpspawn"},
+		{"🔊 Mute",      "mute"},
+		{"🔴 Stop All",  "stopall"},
+		{"📊 Info",      "neofetch"},
+		{"🔮 Vars",      "vars"},
+		{"📡 Remotes",   "remotes"},
+		{"🧹 Clear",     "clear"},
+	}
+
+	for i, qc in ipairs(quickCmds) do
+		local btn = Instance.new("TextButton", quickBar)
+		btn.LayoutOrder        = i
+		btn.Size               = UDim2.new(0, 0, 1, -10)
+		btn.AutomaticSize      = Enum.AutomaticSize.X
+		btn.BackgroundColor3   = Color3.fromRGB(18,18,28)
+		btn.TextColor3         = CONFIG.Crystal
+		btn.Font               = CONFIG.Font
+		btn.TextSize           = 12
+		btn.Text               = " " .. qc[1] .. " "
+		btn.BorderSizePixel    = 0
+		btn.AutoButtonColor    = false
+		Instance.new("UICorner",btn).CornerRadius = UDim.new(0,8)
+		Instance.new("UIStroke",btn).Color = CONFIG.Border
+
+		btn.MouseButton1Click:Connect(function()
+			runCommand(qc[2])
+			btn.BackgroundColor3 = CONFIG.Prompt_Col
+			task.delay(0.2, function() btn.BackgroundColor3 = Color3.fromRGB(18,18,28) end)
+		end)
+
+		btn.TouchTap:Connect(function()
+			runCommand(qc[2])
+			btn.BackgroundColor3 = CONFIG.Prompt_Col
+			task.delay(0.2, function() btn.BackgroundColor3 = Color3.fromRGB(18,18,28) end)
+		end)
+	end
+
+	-- Сепаратор над quick bar
+	local qSep = Instance.new("Frame", Main)
+	qSep.Size             = UDim2.new(1,0,0,1)
+	qSep.Position         = UDim2.new(0,0,1,-(CONFIG.InputH+58))
+	qSep.BackgroundColor3 = CONFIG.Border
+	qSep.BorderSizePixel  = 0
+
+	-- Адаптируем Output под мобиль
+	Output.Size     = UDim2.new(1,-16, 1, -(CONFIG.TitleH + CONFIG.InputH + 66))
+	Output.Position = UDim2.new(0,8, 0, CONFIG.TitleH+6)
+
+	-- Большой InputBox для мобиля
+	InputBox.TextSize    = 15
+	InputBox.ClearTextOnFocus = false
+
+	-- Кнопка Send рядом с инпутом
+	local sendBtn = Instance.new("TextButton", InputBar)
+	sendBtn.Size             = UDim2.new(0, 60, 1, -8)
+	sendBtn.Position         = UDim2.new(1, -66, 0, 4)
+	sendBtn.BackgroundColor3 = CONFIG.Prompt_Col
+	sendBtn.TextColor3       = Color3.fromRGB(255,255,255)
+	sendBtn.Font             = CONFIG.Font
+	sendBtn.TextSize         = 13
+	sendBtn.Text             = "▶ GO"
+	sendBtn.BorderSizePixel  = 0
+	sendBtn.AutoButtonColor  = false
+	Instance.new("UICorner",sendBtn).CornerRadius = UDim.new(0,8)
+
+	sendBtn.MouseButton1Click:Connect(function()
+		local text = InputBox.Text
+		InputBox.Text = ""
+		hideAC()
+		runCommand(text)
+	end)
+	sendBtn.TouchTap:Connect(function()
+		local text = InputBox.Text
+		InputBox.Text = ""
+		hideAC()
+		runCommand(text)
+	end)
+
+	-- Адаптируем InputBox ширину под мобиль
+	InputBox.Size     = UDim2.new(1,-140,1,-6)
+	InputBox.Position = UDim2.new(0,8,0,3)
+	PromptLabel.Visible = false
+
+	-- F9 toggle через кнопку на экране (мобиль)
+	local toggleBtn = Instance.new("TextButton", ScreenGui)
+	toggleBtn.Size             = UDim2.new(0,44,0,44)
+	toggleBtn.Position         = UDim2.new(0,10,0,10)
+	toggleBtn.BackgroundColor3 = Color3.fromRGB(14,14,22)
+	toggleBtn.TextColor3       = CONFIG.Crystal
+	toggleBtn.Font             = CONFIG.Font
+	toggleBtn.TextSize         = 20
+	toggleBtn.Text             = "💎"
+	toggleBtn.BorderSizePixel  = 0
+	toggleBtn.AutoButtonColor  = false
+	toggleBtn.ZIndex           = 20
+	Instance.new("UICorner",toggleBtn).CornerRadius = UDim.new(0,10)
+	Instance.new("UIStroke",toggleBtn).Color = CONFIG.Border
+
+	local function toggleTerminal()
+		State.visible = not State.visible
+		Main.Visible  = State.visible
+		if State.visible then InputBox:CaptureFocus() end
+	end
+
+	toggleBtn.MouseButton1Click:Connect(toggleTerminal)
+	toggleBtn.TouchTap:Connect(toggleTerminal)
+
+	-- Touch drag для toggle button
+	local tDrag, tDragStart, tBtnStart = false
+	toggleBtn.InputBegan:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.Touch then
+			tDrag = true
+			tDragStart = Vector2.new(inp.Position.X, inp.Position.Y)
+			tBtnStart  = toggleBtn.Position
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(inp)
+		if tDrag and inp.UserInputType == Enum.UserInputType.Touch then
+			local d = Vector2.new(inp.Position.X,inp.Position.Y) - tDragStart
+			if d.Magnitude > 6 then
+				toggleBtn.Position = UDim2.new(
+					tBtnStart.X.Scale, tBtnStart.X.Offset+d.X,
+					tBtnStart.Y.Scale, tBtnStart.Y.Offset+d.Y
+				)
+			end
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.Touch then tDrag = false end
+	end)
+
+	-- Автофокус после команды на мобиле
+	RunService.Heartbeat:Connect(function()
+		if State.visible and not InputBox:IsFocused() then
+		end
+	end)
+end
+
+-- =============================================
+-- PC: F9 toggle
+-- =============================================
+if not CONFIG.isMobile then
+	UserInputService.InputBegan:Connect(function(input, gpe)
+		if gpe then return end
+		if input.KeyCode == Enum.KeyCode.F9 then
+			State.visible = not State.visible
+			Main.Visible  = State.visible
+			if State.visible then InputBox:CaptureFocus() end
+		end
+	end)
+end
 
 task.spawn(showSplash)
