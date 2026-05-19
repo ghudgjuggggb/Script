@@ -103,12 +103,17 @@ local Shared = {
 }
 
 local Script_Start_Time = os.time()
-local StartStats = {
-    Level  = Plr.Data.Level.Value,
-    Money  = Plr.Data.Money.Value,
-    Gems   = Plr.Data.Gems.Value,
-    Bounty = (Plr:FindFirstChild("leaderstats") and Plr.leaderstats:FindFirstChild("Bounty") and Plr.leaderstats.Bounty.Value) or 0,
-}
+local StartStats = {Level=0, Money=0, Gems=0, Bounty=0}
+pcall(function()
+    local data = Plr:WaitForChild("Data", 10)
+    if data then
+        StartStats.Level  = (data:FindFirstChild("Level")  and data.Level.Value)  or 0
+        StartStats.Money  = (data:FindFirstChild("Money")  and data.Money.Value)  or 0
+        StartStats.Gems   = (data:FindFirstChild("Gems")   and data.Gems.Value)   or 0
+    end
+    local ls = Plr:FindFirstChild("leaderstats")
+    StartStats.Bounty = ls and ls:FindFirstChild("Bounty") and ls.Bounty.Value or 0
+end)
 
 local function GetSessionTime()
     local s = os.time() - Script_Start_Time
@@ -136,7 +141,7 @@ end
 local function SafeInvoke(remote, ...)
     local args = {...}; local result = nil
     task.spawn(function()
-        local ok, res = pcall(function() return remote:InvokeServer(unpack(args)) end)
+        local ok, res = pcall(function() return remote:InvokeServer(table.unpack(args)) end)
         result = res
     end)
     local start = tick()
@@ -718,9 +723,7 @@ if Remotes.TitleSync then
     end)
 end
 
-if Remotes.TradeUpdated then
-    Remotes.TradeUpdated.OnClientEvent:Connect(function(data) Shared.TradeState = data end)
-end
+-- TradeUpdated handled in Trade tab with full auto-accept logic
 
 PATH.Mobs.ChildRemoved:Connect(function(child)
     if child:IsA("Model") and child.Name:lower():find("boss") then
@@ -1411,15 +1414,21 @@ local function PostToWebhook()
     if not Support.Webhook then return end
     local url = Options.WebhookURL and Options.WebhookURL.Value or ""
     if url == "" or not url:find("discord.com/api/webhooks/") then return end
-    local data = Plr.Data
-    local ls = Plr:FindFirstChild("leaderstats")
-    local bounty = ls and ls:FindFirstChild("Bounty") and ls.Bounty.Value or 0
-    local gainLv = data.Level.Value - StartStats.Level
+    local lvl, money, gems = StartStats.Level, 0, 0
+    pcall(function()
+        local d = Plr:FindFirstChild("Data")
+        if d then
+            lvl   = (d:FindFirstChild("Level") and d.Level.Value)  or lvl
+            money = (d:FindFirstChild("Money") and d.Money.Value)  or 0
+            gems  = (d:FindFirstChild("Gems")  and d.Gems.Value)   or 0
+        end
+    end)
+    local gainLv = lvl - StartStats.Level
     local desc = string.format(
         "**Neko Hub** · Sailor Piece\n**Player:** ||%s||\n**Level:** %s (+%d)\n**Money:** %s | **Gems:** %s\n**Session:** %s",
         Plr.Name,
-        CommaFormat(data.Level.Value), gainLv,
-        Abbreviate(data.Money.Value), Abbreviate(data.Gems.Value),
+        CommaFormat(lvl), gainLv,
+        Abbreviate(money), Abbreviate(gems),
         GetSessionTime()
     )
     task.spawn(function()
@@ -1776,7 +1785,7 @@ RT(MiscTab, "FPSBoost",        "FPS Boost (Client)",    false, function(v) if v 
 RT(MiscTab, "FPSBoost_AF",     "FPS Boost Island Wipe", false)
 RT(MiscTab, "AutoDeleteNotif", "Hide Junk Notifications",false)
 
-if Support.FPS then
+if typeof(setfpscap) == "function" then
     RS_Opt("FPSCap", 60)
     MiscTab:CreateSlider({Name="FPS Cap", Range={15,240}, Increment=5, CurrentValue=60, Flag="FPSCap",
         Callback=function(v) Options.FPSCap.Value = v; pcall(function() setfpscap(v) end) end})
@@ -1847,15 +1856,6 @@ WebhookTab:CreateButton({Name="Post to Webhook Now", Callback=function()
     PostToWebhook(); Notify("Webhook sent!", 2)
 end})
 
--- ════ LOADED ══════════════════════════════════════════
-Rayfield:Notify({
-    Title   = "Neko Hub",
-    Content = "Loaded! Sailor Piece · All functions ready.",
-    Duration= 6,
-})
-
-warn("[NekoHub] Loaded | Sailor Piece | All functions active")
-
 -- ════ TAB: SPEC PASSIVE ═══════════════════════════════
 local SpecTab = Window:CreateTab("Spec Passive", 4483362458)
 
@@ -1902,7 +1902,6 @@ end})
 local SkillTab = Window:CreateTab("Skill Tree", 4483362458)
 
 SkillTab:CreateSection("Auto Skill Tree")
-RT(SkillTab, "AutoSkillTree", "Auto Upgrade Skill Tree", false)
 
 local function FuncSkillTree()
     while Toggles.AutoSkillTree and Toggles.AutoSkillTree.Value do
@@ -1918,8 +1917,6 @@ local function FuncSkillTree()
     end
 end
 
-Toggles.AutoSkillTree = Toggles.AutoSkillTree or {Value=false}
-local _oldSkillCB = SkillTab
 RT(SkillTab, "AutoSkillTree", "Auto Upgrade Skill Tree Nodes", false, function(v)
     Thread("SkillTree.Main", FuncSkillTree, v)
 end)
@@ -1936,7 +1933,6 @@ SkillTab:CreateParagraph({Title="Skill Points", Content="Skill points and node d
 local StatTab = Window:CreateTab("Stat Reroll", 4483362458)
 
 StatTab:CreateSection("Gem / Stat Reroll")
-RT(StatTab, "AutoStatReroll", "Auto Stat Reroll", false)
 
 local function FuncStatReroll()
     while Toggles.AutoStatReroll and Toggles.AutoStatReroll.Value do
@@ -2009,7 +2005,8 @@ StatTab:CreateDropdown({Name="Allocate Stat", Options={"Strength","Defense","Spe
 local WRTab = Window:CreateTab("Weap Rotation", 4483362458)
 
 WRTab:CreateSection("Weapon Rotation")
-RT(WRTab, "WeaponRotation", "Enable Weapon Rotation", false)
+WRTab:CreateToggle({Name="Enable Weapon Rotation", CurrentValue=false, Flag="WeaponRotationWR",
+    Callback=function(v) if Toggles.WeaponRotation then Toggles.WeaponRotation.Value = v end end})
 WRTab:CreateDropdown({Name="Weapon Types to Include", Options={"Melee","Sword","Power"}, CurrentOption={"Melee","Sword"}, Flag="SelectedWeaponTypeWR",
     Callback=function(v)
         local t = {}; for _, i in ipairs(v) do t[i] = true end
@@ -2020,7 +2017,6 @@ WRTab:CreateSlider({Name="Switch Cooldown (s)", Range={1,30}, Increment=1, Curre
     Callback=function(v) Options.SwitchWeaponCD = Options.SwitchWeaponCD or {Value=4}; Options.SwitchWeaponCD.Value = v end})
 
 WRTab:CreateSection("Combo System")
-RT(WRTab, "AutoCombo", "Auto Combo (Custom F-Move)", false)
 RS_Opt("ComboString", "")
 WRTab:CreateInput({Name="Combo String (e.g. M1,Z,X,C)", PlaceholderText="M1,Z,X,M1,F", RemoveTextAfterFocusLost=false, Flag="ComboString",
     Callback=function(v)
@@ -2065,7 +2061,6 @@ end)
 local QuestlineTab = Window:CreateTab("Questline", 4483362458)
 
 QuestlineTab:CreateSection("Questline NPC")
-RT(QuestlineTab, "AutoQuestline", "Auto Questline", false)
 RS_Opt("SelectedQuestline", "")
 QuestlineTab:CreateDropdown({Name="Questline", Options=Tables.QuestlineList, CurrentOption={}, Flag="SelectedQuestline",
     Callback=function(v) Options.SelectedQuestline.Value = v[1] or "" end})
@@ -2080,7 +2075,7 @@ local function FuncQuestline()
 
         local qUI = GetCurrentQuestUI()
         if qUI.IsVisible and qUI.SwitchVisible then
-            pcall(function() gsc(qUI.SwitchBtn) end)
+            pcall(function() qUI.SwitchBtn.MouseButton1Click:Fire() end)
             task.wait(0.5)
         elseif not qUI.IsVisible then
             for _, npc in ipairs(Tables.NPC_MasteryList) do
@@ -2247,7 +2242,6 @@ local AltTab = Window:CreateTab("Alt Help", 4483362458)
 AltTab:CreateSection("Alt Help Mode")
 AltTab:CreateParagraph({Title="Alt Help", Content="Use your alt account to assist with boss fights. The main account activates boss; the alt deals damage and collects rewards."})
 
-RT(AltTab, "AltHelp", "Enable Alt Help Mode", false)
 RT(AltTab, "AltAutoAttack", "Alt Auto M1 Attack", false)
 
 local function FuncAltHelp()
@@ -2368,6 +2362,7 @@ local function FuncAutoComplete()
     end
 end
 
+MakeToggle("AutoStatAlloc", false)
 task.spawn(FuncAutoComplete)
 
 -- ════ MISC CONTINUOUS LOOPS ═══════════════════════════
@@ -2434,5 +2429,11 @@ end)
 task.delay(3, function()
     pcall(function() Remotes.ReqInventory:FireServer() end)
 end)
+
+Rayfield:Notify({
+    Title   = "Neko Hub",
+    Content = "Loaded! Sailor Piece · All functions ready.",
+    Duration= 6,
+})
 
 warn("[NekoHub] All tabs loaded successfully | Sailor Piece")
