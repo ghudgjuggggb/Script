@@ -1,20 +1,25 @@
--- Rex Hub | Slime RNG
--- UI: WindUI by Footagesus
+--[[
+  ██████╗ ███████╗██╗  ██╗    ██╗  ██╗██╗   ██╗██████╗
+  ██╔══██╗██╔════╝╚██╗██╔╝    ██║  ██║██║   ██║██╔══██╗
+  ██████╔╝█████╗   ╚███╔╝     ███████║██║   ██║██████╔╝
+  ██╔══██╗██╔══╝   ██╔██╗     ██╔══██║██║   ██║██╔══██╗
+  ██║  ██║███████╗██╔╝ ██╗    ██║  ██║╚██████╔╝██████╔╝
+  ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝ ╚═════╝
+  Rex Hub | Slime RNG Edition
+  UI: WindUI by Footagesus
+--]]
 
 repeat task.wait() until game:IsLoaded()
 
--- ══════════════════════════════════════
---              SERVICES
--- ══════════════════════════════════════
+-- ─────────────────────────────────────
+--  SERVICES
+-- ─────────────────────────────────────
+local Players     = game:GetService("Players")
+local RS          = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local VirtualUser = game:GetService("VirtualUser")
 
-local Players      = game:GetService("Players")
-local RS           = game:GetService("ReplicatedStorage")
-local HttpService  = game:GetService("HttpService")
-local VirtualUser  = game:GetService("VirtualUser")
-
-local lp           = Players.LocalPlayer
-local char         = workspace:FindFirstChild(lp.Name)
-local hrp          = char and char:FindFirstChild("HumanoidRootPart")
+local lp          = Players.LocalPlayer
 
 -- Anti-AFK
 lp.Idled:Connect(function()
@@ -22,31 +27,17 @@ lp.Idled:Connect(function()
     VirtualUser:ClickButton2(Vector2.new())
 end)
 
--- ══════════════════════════════════════
---              WIND UI
--- ══════════════════════════════════════
+-- ─────────────────────────────────────
+--  HRP HELPER (auto-refresh on respawn)
+-- ─────────────────────────────────────
+local function getHRP()
+    local char = workspace:FindFirstChild(lp.Name)
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
 
-local WindUI = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"
-))()
-
-local Window = WindUI:CreateWindow({
-    Title  = "Rex Hub",
-    Icon   = "shield",
-    Theme  = "Dark",
-    Folder = "RexHub",
-})
-
--- Tabs
-local TabMain     = Window:Tab({ Title = "Main",     Icon = "play"         })
-local TabUpgrades = Window:Tab({ Title = "Upgrades", Icon = "arrow-up"     })
-local TabWebhook  = Window:Tab({ Title = "Webhook",  Icon = "webhook"      })
-local TabSettings = Window:Tab({ Title = "Settings", Icon = "settings"     })
-
--- ══════════════════════════════════════
---              REMOTES HELPER
--- ══════════════════════════════════════
-
+-- ─────────────────────────────────────
+--  REMOTE HELPER
+-- ─────────────────────────────────────
 local NET = RS
     :WaitForChild("Packages")
     :WaitForChild("_Index")
@@ -54,102 +45,129 @@ local NET = RS
     :WaitForChild("networker")
     :WaitForChild("_remotes")
 
-local function invokeService(serviceName, ...)
+local function invoke(serviceName, ...)
     local args = { ... }
     local ok, err = pcall(function()
-        NET:WaitForChild(serviceName):WaitForChild("RemoteFunction"):InvokeServer(unpack(args))
+        NET:WaitForChild(serviceName)
+            :WaitForChild("RemoteFunction")
+            :InvokeServer(unpack(args))
     end)
-    if not ok then warn("[Rex Hub] " .. serviceName .. " error: " .. tostring(err)) end
+    if not ok then
+        warn("[Rex Hub] " .. serviceName .. ": " .. tostring(err))
+    end
 end
 
--- ══════════════════════════════════════
---           GAME FUNCTIONS
--- ══════════════════════════════════════
+-- ─────────────────────────────────────
+--  GAME FUNCTIONS  (оригинальная логика)
+-- ─────────────────────────────────────
 
-local function Notify(title, content)
-    WindUI:Notify({
-        Title   = title,
-        Content = content or "",
-        Icon    = "solar:bell-bold",
-        Duration = 4,
-    })
+-- Roll — читает текущую скорость ролла прямо из UI игры
+local function getRollSpeed()
+    local ok, val = pcall(function()
+        return tonumber(string.match(
+            lp.PlayerGui.Root.BottomBarStats
+                .StatsList.RollSpeedStat.Content.Value.TextLabel.Text,
+            "[%d%.]+"
+        ))
+    end)
+    return (ok and val) and val or 1
 end
 
 local function Roll()
-    invokeService("RollService", "requestRoll")
+    invoke("RollService", "requestRoll")
 end
 
+-- Index — клеймит все тиры
 local function ClaimIndex()
     for _, tier in ipairs({ "basic", "big", "huge", "shiny", "inverted" }) do
-        invokeService("IndexService", "requestClaimReward", tier)
+        invoke("IndexService", "requestClaimReward", tier)
         task.wait(0.1)
     end
 end
 
+-- Potions — использует все бусты
 local function ConsumePotions()
-    for _, boostType in ipairs({ "luck", "ultraLuck", "currency", "rollSpeed" }) do
-        invokeService("BoostService", "requestUseBoost", boostType)
+    for _, boost in ipairs({ "luck", "ultraLuck", "currency", "rollSpeed" }) do
+        invoke("BoostService", "requestUseBoost", boost)
     end
 end
 
+-- Teleport по номеру зоны
 local function Teleport(worldNum)
-    invokeService("ZonesService", "requestTeleportZone", worldNum)
+    invoke("ZonesService", "requestTeleportZone", worldNum)
 end
 
+-- Teleport в лучшую разблокированную зону (оригинальный алгоритм)
 local function TeleportBestZone()
-    local zones = workspace:FindFirstChild("Zones")
-    if not zones then return end
+    local zonesFolder = workspace:FindFirstChild("Zones")
+    if not zonesFolder then return end
+
+    local gateList = {}
+    for _, zone in pairs(zonesFolder:GetChildren()) do
+        local gate = zone:FindFirstChild("Gate")
+        if gate then
+            local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name)
+            if blocker then
+                table.insert(gateList, blocker)
+            end
+        end
+    end
+
     local best = 0
-    for _, zone in pairs(zones:GetChildren()) do
-        local blockerName = "ClientGateBlocker_" .. zone.Name
-        local gate = zone:FindFirstChild("Gate") and zone.Gate:FindFirstChild(blockerName)
-        if gate and gate.CanCollide ~= true then
-            local num = tonumber(zone.Name)
+    for _, blocker in pairs(gateList) do
+        if not blocker.CanCollide then
+            local num = tonumber(blocker.Parent.Parent.Name)
             if num and num > best then best = num end
         end
     end
+
     Teleport(best + 1)
 end
 
+-- Collect drops — телепортирует дропы к игроку и собирает
 local function CollectDrops()
+    local hrp  = getHRP()
     local loot = workspace:FindFirstChild("Loot")
-    if not loot then return end
-    -- refresh char ref each call
-    char = workspace:FindFirstChild(lp.Name)
-    hrp  = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    if not hrp or not loot then return end
 
     for _, drop in pairs(loot:GetChildren()) do
         if drop and drop:FindFirstChild("Root") then
-            drop.Root.CFrame = hrp.CFrame
-            local prox = drop.Root:FindFirstChild("Attachment")
-                and drop.Root.Attachment:FindFirstChild("ProximityPrompt")
-            if prox then
-                fireproximityprompt(prox)
+            drop.Root.CFrame = CFrame.new(
+                hrp.CFrame.X, hrp.CFrame.Y, hrp.CFrame.Z
+            )
+            local att = drop.Root:FindFirstChild("Attachment")
+            if att then
+                local prox = att:FindFirstChild("ProximityPrompt")
+                if prox then fireproximityprompt(prox) end
             end
             task.wait(0.3)
         end
     end
 end
 
+-- Upgrade — парсит тайлы апгрейдов и покупает доступные
 local function getUpgradeTiles()
     local pg = lp:FindFirstChild("PlayerGui")
     if not pg then return nil end
-    local path = pg:FindFirstChild("Root")
-        and pg.Root:FindFirstChild("UpgradeScreen")
-        and pg.Root.UpgradeScreen:FindFirstChild("UpgradeContent")
-        and pg.Root.UpgradeScreen.UpgradeContent:FindFirstChild("Frame")
-    return path and path:GetChildren()
+    local root    = pg:FindFirstChild("Root")
+    local screen  = root and root:FindFirstChild("UpgradeScreen")
+    local content = screen and screen:FindFirstChild("UpgradeContent")
+    local frame   = content and content:FindFirstChild("Frame")
+    return frame and frame:GetChildren()
 end
 
 local function Upgrade()
     local tiles = getUpgradeTiles()
     if not tiles then return end
+
     for _, tile in pairs(tiles) do
-        if tile.Name == "UIAspectRatioConstraint" or tile.Name == "UpgradeHoverInfo" then continue end
+        if tile.Name == "UIAspectRatioConstraint"
+        or tile.Name == "UpgradeHoverInfo" then continue end
+
         local img = tile:FindFirstChild("ImageLabel")
         if not img then continue end
         if img.Image ~= "rbxassetid://127271823919078" then continue end
+
         for _, label in pairs(img:GetChildren()) do
             if label.Name ~= "TextLabelFrame" then continue end
             local prefix = label:FindFirstChild("Prefix")
@@ -157,13 +175,14 @@ local function Upgrade()
             if prefix and tl and tl.TextColor3:ToHex() ~= "ff2d49" then
                 local upgradeName = tile.Name:match("^(%S+)Tile")
                 if upgradeName then
-                    invokeService("UpgradeService", "requestUnlock", upgradeName)
+                    invoke("UpgradeService", "requestUnlock", upgradeName)
                 end
             end
         end
     end
 end
 
+-- Slime Gun — стреляет по всем врагам
 local function FindGameplayFolder()
     for _, v in workspace:GetChildren() do
         if v.Name:match("Gameplay%d*") then return v end
@@ -177,324 +196,343 @@ local function FindEnemies()
 end
 
 local function FireSlimeGun(id)
-    invokeService("SlimeGunService", "tryFireSlimeGun", id)
+    invoke("SlimeGunService", "tryFireSlimeGun", id)
 end
 
--- ══════════════════════════════════════
---         WEBHOOK HELPERS
--- ══════════════════════════════════════
-
+-- ─────────────────────────────────────
+--  WEBHOOK
+-- ─────────────────────────────────────
 local webhookUrl      = ""
 local webhookInterval = 30
 
-local function buildWebhookBody(data)
+local function buildEmbed(data)
     return HttpService:JSONEncode({
         embeds = {{
             title       = data.title or "Rex Hub",
             description = data.description or "",
-            color       = 5592575,
-            footer      = { text = "Rex Hub | Slime RNG" },
+            color       = 0x7B68EE,   -- фиолетовый
+            footer      = { text = "Rex Hub • Slime RNG" },
             timestamp   = DateTime.now():ToIsoDate(),
         }},
         attachments = {},
     })
 end
 
-local function sendWebhook(url, data)
-    if not url or url == "" then
-        Notify("Webhook", "No URL set!")
-        return
-    end
+local function sendWebhook(data)
+    if webhookUrl == "" then return end
     pcall(function()
         request({
-            Url    = url,
-            Method = "POST",
+            Url     = webhookUrl,
+            Method  = "POST",
             Headers = { ["Content-Type"] = "application/json" },
-            Body   = buildWebhookBody(data),
+            Body    = buildEmbed(data),
         })
     end)
 end
 
--- ══════════════════════════════════════
---       TOGGLE STATE TABLE
--- ══════════════════════════════════════
+-- ─────────────────────────────────────
+--  WIND UI
+-- ─────────────────────────────────────
+local WindUI = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"
+))()
 
-local State = {
-    AutoRoll          = false,
-    AutoIndex         = false,
-    AutoDrops         = false,
-    AutoPotions       = false,
-    AutoSlimeGun      = false,
-    AutoUpgrade       = false,
-    AutoBestZone      = false,
-    AutoBuyZone       = false,
-    AutoRebirth       = false,
-    AutoEquipBest     = false,
-    Webhook           = false,
-    UpgradeInterval   = 30,
-    BestZoneInterval  = 30,
+local Window = WindUI:CreateWindow({
+    Title  = "Rex Hub",
+    Icon   = "shield",
+    Theme  = "Dark",
+    Folder = "RexHub",
+})
+
+local function Notify(title, content)
+    WindUI:Notify({
+        Title    = title,
+        Content  = content or "",
+        Icon     = "solar:bell-bold",
+        Duration = 4,
+    })
+end
+
+-- Табы
+local TMain     = Window:Tab({ Title = "Main",     Icon = "play"        })
+local TUpgrades = Window:Tab({ Title = "Upgrades", Icon = "trending-up" })
+local TWebhook  = Window:Tab({ Title = "Webhook",  Icon = "link"        })
+
+-- ─────────────────────────────────────
+--  STATE
+-- ─────────────────────────────────────
+local S = {
+    AutoRoll         = false,
+    AutoIndex        = false,
+    AutoDrops        = false,
+    AutoPotions      = false,
+    AutoSlimeGun     = false,
+    AutoBestZone     = false,
+    AutoUpgrade      = false,
+    AutoBuyZone      = false,
+    AutoRebirth      = false,
+    AutoEquipBest    = false,
+    Webhook          = false,
+    BestZoneInterval = 30,
+    UpgradeInterval  = 30,
 }
 
--- ══════════════════════════════════════
---           MAIN TAB
--- ══════════════════════════════════════
+-- ─────────────────────────────────────
+--  MAIN TAB
+-- ─────────────────────────────────────
 
-TabMain:Toggle({
+-- ── Роллинг ──────────────────────────
+TMain:Toggle({
     Title    = "Auto Roll",
     Icon     = "refresh-cw",
     Value    = false,
     Flag     = "AutoRoll",
     Callback = function(v)
-        State.AutoRoll = v
-        Notify("Auto Roll", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoRoll do
-                    local ok, speed = pcall(function()
-                        return tonumber(string.match(
-                            lp.PlayerGui.Root.BottomBarStats.StatsList
-                                .RollSpeedStat.Content.Value.TextLabel.Text,
-                            "[%d%.]+"
-                        ))
-                    end)
-                    task.wait((ok and speed) and speed or 1)
-                    Roll()
-                end
-            end)
-        end
+        S.AutoRoll = v
+        Notify("Auto Roll", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoRoll do
+                task.wait(getRollSpeed())
+                Roll()
+            end
+        end)
     end,
 })
 
-TabMain:Space()
+TMain:Space()
 
-TabMain:Toggle({
+-- ── Индекс ───────────────────────────
+TMain:Toggle({
     Title    = "Auto Index Claim",
     Icon     = "archive",
     Value    = false,
     Flag     = "AutoIndex",
     Callback = function(v)
-        State.AutoIndex = v
-        Notify("Auto Index", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoIndex do
-                    ClaimIndex()
-                    task.wait(30)
-                end
-            end)
-        end
+        S.AutoIndex = v
+        Notify("Auto Index", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoIndex do
+                ClaimIndex()
+                task.wait(30)
+            end
+        end)
     end,
 })
 
-TabMain:Space()
+TMain:Space()
 
-TabMain:Toggle({
+-- ── Дропы ────────────────────────────
+TMain:Toggle({
     Title    = "Auto Collect Drops",
     Icon     = "package",
     Value    = false,
     Flag     = "AutoDrops",
     Callback = function(v)
-        State.AutoDrops = v
-        Notify("Auto Drops", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoDrops do
-                    pcall(CollectDrops)
-                    task.wait()
-                end
-            end)
-        end
+        S.AutoDrops = v
+        Notify("Auto Drops", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoDrops do
+                pcall(CollectDrops)
+                task.wait()
+            end
+        end)
     end,
 })
 
-TabMain:Space()
+TMain:Space()
 
-TabMain:Toggle({
+-- ── Зелья ────────────────────────────
+TMain:Toggle({
     Title    = "Auto Potions",
     Icon     = "flask-conical",
     Value    = false,
     Flag     = "AutoPotions",
     Callback = function(v)
-        State.AutoPotions = v
-        Notify("Auto Potions", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoPotions do
-                    ConsumePotions()
-                    task.wait(3)
-                end
-            end)
-        end
+        S.AutoPotions = v
+        Notify("Auto Potions", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoPotions do
+                ConsumePotions()
+                task.wait(3)
+            end
+        end)
     end,
 })
 
-TabMain:Space()
+TMain:Space()
 
-TabMain:Toggle({
+-- ── Slime Gun ─────────────────────────
+TMain:Toggle({
     Title    = "Auto Slime Gun",
     Icon     = "zap",
     Value    = false,
     Flag     = "AutoSlimeGun",
     Callback = function(v)
-        State.AutoSlimeGun = v
-        Notify("Auto Slime Gun", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoSlimeGun do
-                    pcall(function()
-                        for _, enemy in pairs(FindEnemies()) do
-                            if enemy and enemy.Parent then
-                                repeat
-                                    FireSlimeGun(tonumber(enemy.Name))
-                                    task.wait(0.05)
-                                until not enemy.Parent or not State.AutoSlimeGun
-                            end
+        S.AutoSlimeGun = v
+        Notify("Auto Slime Gun", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoSlimeGun do
+                local ok, err = pcall(function()
+                    for _, enemy in pairs(FindEnemies()) do
+                        if enemy and enemy.Parent then
+                            repeat
+                                FireSlimeGun(tonumber(enemy.Name))
+                                task.wait(0.05)
+                            until not enemy.Parent or not S.AutoSlimeGun
                         end
-                    end)
-                    task.wait()
-                end
-            end)
-        end
+                    end
+                end)
+                if not ok then warn("[Rex Hub] SlimeGun: " .. tostring(err)) end
+                task.wait()
+            end
+        end)
     end,
 })
 
-TabMain:Space()
+TMain:Space()
 
-TabMain:Toggle({
+-- ── Лучшая зона ──────────────────────
+TMain:Toggle({
     Title    = "Auto Best Zone",
     Icon     = "map-pin",
     Value    = false,
     Flag     = "AutoBestZone",
     Callback = function(v)
-        State.AutoBestZone = v
-        Notify("Auto Best Zone", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoBestZone do
-                    TeleportBestZone()
-                    task.wait(State.BestZoneInterval)
-                end
-            end)
-        end
+        S.AutoBestZone = v
+        Notify("Auto Best Zone", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoBestZone do
+                pcall(TeleportBestZone)
+                task.wait(S.BestZoneInterval)
+            end
+        end)
     end,
 })
 
-TabMain:Input({
+TMain:Input({
     Title       = "Best Zone Interval (sec)",
     Icon        = "timer",
     Value       = "30",
-    Placeholder = "Seconds",
+    Placeholder = "Секунды (по умолч. 30)",
     Numeric     = true,
     Flag        = "BestZoneInterval",
     Callback    = function(v)
-        State.BestZoneInterval = tonumber(v) or 30
+        S.BestZoneInterval = tonumber(v) or 30
     end,
 })
 
--- ══════════════════════════════════════
---         UPGRADES TAB
--- ══════════════════════════════════════
+-- ─────────────────────────────────────
+--  UPGRADES TAB
+-- ─────────────────────────────────────
 
-TabUpgrades:Toggle({
+-- ── Авто-апгрейд ─────────────────────
+TUpgrades:Toggle({
     Title    = "Auto Upgrade",
     Icon     = "trending-up",
     Value    = false,
     Flag     = "AutoUpgrade",
     Callback = function(v)
-        State.AutoUpgrade = v
-        Notify("Auto Upgrade", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoUpgrade do
-                    Upgrade()
-                    task.wait(State.UpgradeInterval)
-                end
-            end)
-        end
+        S.AutoUpgrade = v
+        Notify("Auto Upgrade", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoUpgrade do
+                pcall(Upgrade)
+                task.wait(S.UpgradeInterval)
+            end
+        end)
     end,
 })
 
-TabUpgrades:Input({
+TUpgrades:Input({
     Title       = "Upgrade Interval (sec)",
     Icon        = "timer",
     Value       = "30",
-    Placeholder = "Seconds",
+    Placeholder = "Секунды (по умолч. 30)",
     Numeric     = true,
     Flag        = "UpgradeInterval",
     Callback    = function(v)
-        State.UpgradeInterval = tonumber(v) or 30
+        S.UpgradeInterval = tonumber(v) or 30
     end,
 })
 
-TabUpgrades:Space()
+TUpgrades:Space()
 
-TabUpgrades:Toggle({
+-- ── Покупка зон ──────────────────────
+TUpgrades:Toggle({
     Title    = "Auto Buy Zone",
     Icon     = "map",
     Value    = false,
     Flag     = "AutoBuyZone",
     Callback = function(v)
-        State.AutoBuyZone = v
-        Notify("Auto Buy Zone", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoBuyZone do
-                    invokeService("ZonesService", "requestPurchaseZone")
-                    task.wait(5)
-                end
-            end)
-        end
+        S.AutoBuyZone = v
+        Notify("Auto Buy Zone", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoBuyZone do
+                invoke("ZonesService", "requestPurchaseZone")
+                task.wait(5)
+            end
+        end)
     end,
 })
 
-TabUpgrades:Space()
+TUpgrades:Space()
 
-TabUpgrades:Toggle({
+-- ── Ребёрс ───────────────────────────
+TUpgrades:Toggle({
     Title    = "Auto Rebirth",
     Icon     = "rotate-ccw",
     Value    = false,
     Flag     = "AutoRebirth",
     Callback = function(v)
-        State.AutoRebirth = v
-        Notify("Auto Rebirth", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoRebirth do
-                    invokeService("RebirthService", "requestRebirth")
-                    task.wait(5)
-                end
-            end)
-        end
+        S.AutoRebirth = v
+        Notify("Auto Rebirth", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoRebirth do
+                Notify("Rebirth", "Выполняю ребёрс...")
+                invoke("RebirthService", "requestRebirth")
+                task.wait(5)
+            end
+        end)
     end,
 })
 
-TabUpgrades:Space()
+TUpgrades:Space()
 
-TabUpgrades:Toggle({
+-- ── Авто-экип лучшего ────────────────
+TUpgrades:Toggle({
     Title    = "Auto Equip Best",
     Icon     = "star",
     Value    = false,
     Flag     = "AutoEquipBest",
     Callback = function(v)
-        State.AutoEquipBest = v
-        Notify("Auto Equip Best", v and "Enabled" or "Disabled")
-        if v then
-            task.spawn(function()
-                while State.AutoEquipBest do
-                    invokeService("InventoryService", "requestEquipBest")
-                    task.wait(10)
-                end
-            end)
-        end
+        S.AutoEquipBest = v
+        Notify("Auto Equip Best", v and "✅ Включён" or "⛔ Выключен")
+        if not v then return end
+        task.spawn(function()
+            while S.AutoEquipBest do
+                invoke("InventoryService", "requestEquipBest")
+                task.wait(10)
+                Notify("Equip Best", "Лучшие питомцы экипированы!")
+            end
+        end)
     end,
 })
 
--- ══════════════════════════════════════
---          WEBHOOK TAB
--- ══════════════════════════════════════
+-- ─────────────────────────────────────
+--  WEBHOOK TAB
+-- ─────────────────────────────────────
 
-TabWebhook:Input({
-    Title       = "Webhook URL",
+TWebhook:Input({
+    Title       = "Discord Webhook URL",
     Icon        = "link",
     Value       = "",
     Placeholder = "https://discord.com/api/webhooks/...",
@@ -505,13 +543,13 @@ TabWebhook:Input({
     end,
 })
 
-TabWebhook:Space()
+TWebhook:Space()
 
-TabWebhook:Input({
-    Title       = "Send Interval (sec)",
+TWebhook:Input({
+    Title       = "Интервал отправки (sec)",
     Icon        = "timer",
     Value       = "30",
-    Placeholder = "Seconds",
+    Placeholder = "Секунды",
     Numeric     = true,
     Flag        = "WebhookInterval",
     Callback    = function(v)
@@ -519,56 +557,58 @@ TabWebhook:Input({
     end,
 })
 
-TabWebhook:Space()
+TWebhook:Space()
 
-TabWebhook:Toggle({
-    Title    = "Enable Webhook",
-    Icon     = "webhook",
+TWebhook:Toggle({
+    Title    = "Включить Webhook",
+    Icon     = "send",
     Value    = false,
     Flag     = "Webhook",
     Callback = function(v)
-        State.Webhook = v
-        Notify("Webhook", v and "Started" or "Stopped")
-        if v then
-            task.spawn(function()
-                while State.Webhook do
-                    local rolls = ""
-                    pcall(function()
-                        rolls = workspace:FindFirstChild(lp.Name)
-                            .HumanoidRootPart.TitleGui.NumRolls.Text
-                    end)
-                    sendWebhook(webhookUrl, {
-                        title       = lp.Name,
-                        description = "Rolls: " .. rolls,
-                    })
-                    task.wait(webhookInterval)
-                end
-            end)
-        end
+        S.Webhook = v
+        Notify("Webhook", v and "✅ Запущен" or "⛔ Остановлен")
+        if not v then return end
+        task.spawn(function()
+            while S.Webhook do
+                local rolls = "?"
+                pcall(function()
+                    rolls = workspace:FindFirstChild(lp.Name)
+                        .HumanoidRootPart.TitleGui.NumRolls.Text
+                end)
+                sendWebhook({
+                    title       = "📊 " .. lp.Name,
+                    description = "Роллов накручено: **" .. rolls .. "**",
+                })
+                task.wait(webhookInterval)
+            end
+        end)
     end,
 })
 
-TabWebhook:Space()
+TWebhook:Space()
 
-TabWebhook:Button({
-    Title    = "Test Webhook",
-    Icon     = "send",
+TWebhook:Button({
+    Title    = "Тест Webhook",
+    Icon     = "check-circle",
     Callback = function()
-        sendWebhook(webhookUrl, {
-            title       = "Rex Hub Test",
-            description = "Webhook is working! ✅",
+        if webhookUrl == "" then
+            Notify("Webhook", "⚠️ Сначала введи URL!")
+            return
+        end
+        sendWebhook({
+            title       = "🛡️ Rex Hub — Test",
+            description = "Webhook работает корректно! ✅",
         })
-        Notify("Webhook", "Test sent!")
+        Notify("Webhook", "Тест отправлен!")
     end,
 })
 
--- ══════════════════════════════════════
---         READY NOTIFICATION
--- ══════════════════════════════════════
-
+-- ─────────────────────────────────────
+--  ЗАГРУЗКА ЗАВЕРШЕНА
+-- ─────────────────────────────────────
 WindUI:Notify({
     Title    = "Rex Hub",
-    Content  = "Slime RNG loaded successfully!",
+    Content  = "Slime RNG готов к работе!",
     Icon     = "shield",
-    Duration = 5,
+    Duration = 6,
 })
