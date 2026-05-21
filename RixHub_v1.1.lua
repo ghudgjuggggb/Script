@@ -6,7 +6,7 @@ local Window = Luna:CreateWindow({
     LogoID = "130188918639066",
     LoadingEnabled = true,
     LoadingTitle = "Rix Hub",
-    LoadingSubtitle = "Загрузка...",
+    LoadingSubtitle = "Loading...",
     ConfigSettings = {
         RootFolder = nil,
         ConfigFolder = "RixHub"
@@ -21,17 +21,23 @@ local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualUser = game:GetService("VirtualUser")
+local HttpService = game:GetService("HttpService")
+local Debris = game:GetService("Debris")
+local StarterGui = game:GetService("StarterGui")
 
 if not LP then return end
 
 local Connections = {}
-local SpeedMult = 1.5
-local JumpMult = 1.5
+local SpeedMult = 1.2
+local JumpMult = 1.3
 local SpinSpd = 15
-local HitboxMult = 2
-local FlySpd = 50
+local HitboxMult = 1.5
+local FlySpd = 40
 local PlatHeight = 8
-local GravityMult = 1
+local GravityMult = 0.5
+local ReachDistance = 10
 local PlatformPart = nil
 local ESPObjects = {}
 local OriginalParts = {}
@@ -39,9 +45,14 @@ local OriginalSizes = {}
 local LastPos = nil
 local IsJumping = false
 local bodyVelocity = nil
-local SavedGravity = Workspace.Gravity
+local ReachCircle = nil
+local ReachGui = nil
+local AntiCheatEnabled = false
+local OriginalGravity = Workspace.Gravity
 local OriginalWalkSpeed = 16
 local OriginalJumpHeight = 7.2
+local SpoofedValues = {}
+local BlockedRemotes = {}
 
 local function getChar()
     return LP.Character
@@ -59,25 +70,21 @@ end
 
 local function disconnect(key)
     if Connections[key] then
-        Connections[key]:Disconnect()
+        pcall(function()
+            Connections[key]:Disconnect()
+        end)
         Connections[key] = nil
     end
 end
 
 local function Notify(title, content)
-    Luna:Notification({
-        Title = title,
-        Icon = "info",
-        ImageSource = "Material",
-        Content = content or ""
-    })
-end
-
-local function SafeSetProperty(obj, prop, value)
     pcall(function()
-        if obj and obj.Parent then
-            obj[prop] = value
-        end
+        Luna:Notification({
+            Title = title,
+            Icon = "info",
+            ImageSource = "Material",
+            Content = content or ""
+        })
     end)
 end
 
@@ -89,12 +96,192 @@ local function SafeDestroy(obj)
     end)
 end
 
-local function GetRandomDelay()
-    return math.random(50, 150) / 1000
+local function SafeSetProperty(obj, prop, value)
+    pcall(function()
+        if obj and obj.Parent then
+            obj[prop] = value
+        end
+    end)
 end
 
-local function ApplyWithDelay(func)
-    task.delay(GetRandomDelay(), func)
+local function CreateReachCircle()
+    pcall(function()
+        if ReachGui then SafeDestroy(ReachGui) end
+        ReachGui = Instance.new("ScreenGui")
+        ReachGui.Name = "RixReachGui"
+        ReachGui.ResetOnSpawn = false
+        ReachGui.IgnoreGuiInset = true
+        ReachGui.Parent = LP.PlayerGui
+
+        ReachCircle = Instance.new("Frame")
+        ReachCircle.Name = "ReachCircle"
+        ReachCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+        ReachCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+        ReachCircle.Size = UDim2.new(0, ReachDistance * 8, 0, ReachDistance * 8)
+        ReachCircle.BackgroundTransparency = 0.85
+        ReachCircle.BackgroundColor3 = Color3.fromRGB(0, 255, 200)
+        ReachCircle.BorderSizePixel = 0
+        ReachCircle.Parent = ReachGui
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(1, 0)
+        corner.Parent = ReachCircle
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(0, 255, 200)
+        stroke.Thickness = 2
+        stroke.Parent = ReachCircle
+
+        local label = Instance.new("TextLabel")
+        label.Name = "DistanceLabel"
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.Position = UDim2.new(0, 0, 1, 5)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = Color3.fromRGB(0, 255, 200)
+        label.TextSize = 14
+        label.Font = Enum.Font.GothamBold
+        label.Text = tostring(ReachDistance) .. " studs"
+        label.Parent = ReachCircle
+    end)
+end
+
+local function UpdateReachCircle()
+    pcall(function()
+        if ReachCircle then
+            ReachCircle.Size = UDim2.new(0, ReachDistance * 8, 0, ReachDistance * 8)
+            local label = ReachCircle:FindFirstChild("DistanceLabel")
+            if label then
+                label.Text = tostring(ReachDistance) .. " studs"
+            end
+        end
+    end)
+end
+
+local function DestroyReachCircle()
+    SafeDestroy(ReachGui)
+    ReachCircle = nil
+    ReachGui = nil
+end
+
+local function SetupAntiCheatBypass()
+    pcall(function()
+        if not getrawmetatable then return end
+        local mt = getrawmetatable(game)
+        if not mt then return end
+        local oldNamecall = mt.__namecall
+        setreadonly(mt, false)
+
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            local args = {...}
+
+            if method == "FireServer" or method == "InvokeServer" then
+                local remoteName = tostring(self)
+                local lowerName = remoteName:lower()
+
+                if lowerName:find("kick") or lowerName:find("ban") or lowerName:find("report") or 
+                   lowerName:find("ac") or lowerName:find("anti") or lowerName:find("cheat") or 
+                   lowerName:find("detect") or lowerName:find("bac") or lowerName:find("hack") or
+                   lowerName:find("exploit") or lowerName:find("flag") or lowerName:find("log") or
+                   lowerName:find("punish") or lowerName:find("moderate") or lowerName:find("security") then
+
+                    if not BlockedRemotes[remoteName] then
+                        BlockedRemotes[remoteName] = true
+                        Notify("AC Bypass", "Blocked: " .. remoteName)
+                    end
+                    return nil
+                end
+
+                if #args > 0 then
+                    for i = 1, #args do
+                        local argStr = tostring(args[i]):lower()
+                        if argStr:find("cheat") or argStr:find("hack") or argStr:find("exploit") or 
+                           argStr:find("bac") or argStr:find("speed") or argStr:find("fly") or
+                           argStr:find("teleport") or argStr:find("noclip") then
+                            return nil
+                        end
+                    end
+                end
+            end
+
+            if method == "Kick" and (self == LP or self == LP.Character) then
+                Notify("AC Bypass", "Kick blocked!")
+                return nil
+            end
+
+            if method == "Destroy" and self == LP then
+                Notify("AC Bypass", "Destroy blocked!")
+                return nil
+            end
+
+            return oldNamecall(self, ...)
+        end)
+
+        setreadonly(mt, true)
+    end)
+
+    pcall(function()
+        if hookfunction then
+            local oldKick = hookfunction(LP.Kick, function(self, ...)
+                if self == LP then
+                    Notify("AC Bypass", "Kick function blocked!")
+                    return nil
+                end
+                return oldKick(self, ...)
+            end)
+        end
+    end)
+
+    pcall(function()
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                local name = obj.Name:lower()
+                if name:find("kick") or name:find("ban") or name:find("report") or 
+                   name:find("ac") or name:find("anti") or name:find("cheat") or 
+                   name:find("detect") or name:find("bac") or name:find("hack") or
+                   name:find("exploit") or name:find("flag") or name:find("log") or
+                   name:find("punish") or name:find("moderate") or name:find("security") then
+
+                    pcall(function()
+                        obj.OnClientEvent:Connect(function(...)
+                            Notify("AC Bypass", "Event blocked: " .. obj.Name)
+                            return nil
+                        end)
+                    end)
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        LP.CharacterRemoving:Connect(function()
+            if AntiCheatEnabled then
+                task.wait(0.1)
+                SetupAntiCheatBypass()
+            end
+        end)
+    end)
+end
+
+local function SpoofHumanoidProperties()
+    pcall(function()
+        local hum = getHum()
+        if not hum then return end
+
+        if not SpoofedValues[hum] then
+            SpoofedValues[hum] = {}
+        end
+
+        local function spoof(prop, realValue, fakeValue)
+            pcall(function()
+                hum[prop] = realValue
+                SpoofedValues[hum][prop] = {Real = realValue, Fake = fakeValue}
+            end)
+        end
+
+        spoof("WalkSpeed", 16 * SpeedMult, 16)
+        spoof("JumpHeight", OriginalJumpHeight * JumpMult, OriginalJumpHeight)
+    end)
 end
 
 local TMovement = Window:CreateTab({ Name = "Movement", Icon = "directions_run", ImageSource = "Material", ShowTitle = true })
@@ -113,10 +300,9 @@ TMovement:CreateToggle({
                 pcall(function()
                     local hum = getHum()
                     if hum then
-                        local targetSpeed = 16 * SpeedMult
-                        local currentSpeed = hum.WalkSpeed
-                        if math.abs(currentSpeed - targetSpeed) > 0.5 then
-                            hum.WalkSpeed = targetSpeed
+                        local target = 16 * SpeedMult
+                        if math.abs(hum.WalkSpeed - target) > 0.1 then
+                            hum.WalkSpeed = target
                         end
                     end
                 end)
@@ -133,12 +319,12 @@ TMovement:CreateToggle({
 })
 
 TMovement:CreateSlider({
-    Name = "Speed x",
-    Range = {1, 3},
+    Name = "Speed Multiplier",
+    Range = {1, 2.5},
     Increment = 0.1,
-    CurrentValue = 1.5,
+    CurrentValue = 1.2,
     Callback = function(value)
-        SpeedMult = tonumber(value) or 1.5
+        SpeedMult = tonumber(value) or 1.2
     end
 })
 
@@ -154,9 +340,9 @@ TMovement:CreateToggle({
                 pcall(function()
                     local hum = getHum()
                     if hum then
-                        local targetHeight = OriginalJumpHeight * JumpMult
-                        if math.abs(hum.JumpHeight - targetHeight) > 0.1 then
-                            hum.JumpHeight = targetHeight
+                        local target = OriginalJumpHeight * JumpMult
+                        if math.abs(hum.JumpHeight - target) > 0.1 then
+                            hum.JumpHeight = target
                         end
                     end
                 end)
@@ -173,12 +359,12 @@ TMovement:CreateToggle({
 })
 
 TMovement:CreateSlider({
-    Name = "Jump x",
-    Range = {1, 3},
+    Name = "Jump Multiplier",
+    Range = {1, 2.5},
     Increment = 0.1,
-    CurrentValue = 1.5,
+    CurrentValue = 1.3,
     Callback = function(value)
-        JumpMult = tonumber(value) or 1.5
+        JumpMult = tonumber(value) or 1.3
     end
 })
 
@@ -203,9 +389,9 @@ TMovement:CreateToggle({
                             if hum.FloorMaterial == Enum.Material.Air then
                                 local bv = Instance.new("BodyVelocity")
                                 bv.MaxForce = Vector3.new(0, math.huge, 0)
-                                bv.Velocity = Vector3.new(0, 35, 0)
+                                bv.Velocity = Vector3.new(0, 30, 0)
                                 bv.Parent = hrp
-                                game:GetService("Debris"):AddItem(bv, 0.15)
+                                Debris:AddItem(bv, 0.1)
                             end
                             hum:ChangeState(Enum.HumanoidStateType.Jumping)
                         end
@@ -238,7 +424,7 @@ TMovement:CreateToggle({
                     local hrp = getHRP()
                     if hrp then
                         local vel = hrp.Velocity
-                        if vel.Y < 0 then
+                        if vel.Y < -5 then
                             hrp.Velocity = Vector3.new(vel.X, vel.Y * GravityMult, vel.Z)
                         end
                     end
@@ -310,7 +496,7 @@ TFeatures:CreateToggle({
                             local pname = item.Parent.Name:lower()
                             if name:find("brainrot") or name:find("brain") or pname:find("brainrot") then
                                 local dist = (item.Position - hrp.Position).Magnitude
-                                if dist < 50 then
+                                if dist < 30 then
                                     item.CFrame = hrp.CFrame + Vector3.new(0, 2, 0)
                                 end
                             end
@@ -428,11 +614,11 @@ TFeatures:CreateToggle({
 
 TFeatures:CreateSlider({
     Name = "Hitbox Size",
-    Range = {1, 5},
+    Range = {1, 3},
     Increment = 0.5,
-    CurrentValue = 2,
+    CurrentValue = 1.5,
     Callback = function(value)
-        HitboxMult = tonumber(value) or 2
+        HitboxMult = tonumber(value) or 1.5
     end
 })
 
@@ -492,11 +678,11 @@ TFeatures:CreateToggle({
 
 TFeatures:CreateSlider({
     Name = "Fly Speed",
-    Range = {10, 100},
+    Range = {10, 80},
     Increment = 1,
-    CurrentValue = 50,
+    CurrentValue = 40,
     Callback = function(value)
-        FlySpd = tonumber(value) or 50
+        FlySpd = tonumber(value) or 40
     end
 })
 
@@ -572,6 +758,33 @@ TVisuals:CreateToggle({
 TVisuals:CreateDivider()
 
 TVisuals:CreateToggle({
+    Name = "Reach Circle",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then
+            CreateReachCircle()
+            Notify("Reach Circle", "On - " .. ReachDistance .. " studs")
+        else
+            DestroyReachCircle()
+            Notify("Reach Circle", "Off")
+        end
+    end
+})
+
+TVisuals:CreateSlider({
+    Name = "Reach Distance",
+    Range = {5, 50},
+    Increment = 1,
+    CurrentValue = 10,
+    Callback = function(value)
+        ReachDistance = tonumber(value) or 10
+        UpdateReachCircle()
+    end
+})
+
+TVisuals:CreateDivider()
+
+TVisuals:CreateToggle({
     Name = "Xray Vision",
     CurrentValue = false,
     Callback = function(v)
@@ -624,6 +837,23 @@ TVisuals:CreateToggle({
 })
 
 TProtection:CreateToggle({
+    Name = "Anti Cheat Bypass",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then
+            AntiCheatEnabled = true
+            SetupAntiCheatBypass()
+            Notify("Anti Cheat", "Multi-Stage Bypass Active")
+        else
+            AntiCheatEnabled = false
+            Notify("Anti Cheat", "Off")
+        end
+    end
+})
+
+TProtection:CreateDivider()
+
+TProtection:CreateToggle({
     Name = "Anti Kick",
     CurrentValue = false,
     Callback = function(v)
@@ -667,7 +897,7 @@ TProtection:CreateToggle({
                         return
                     end
                     local dist = (hrp.Position - LastPos).Magnitude
-                    if dist > 200 then
+                    if dist > 150 then
                         hrp.CFrame = CFrame.new(LastPos)
                     else
                         LastPos = hrp.Position
@@ -691,8 +921,8 @@ TProtection:CreateToggle({
         if v then
             Connections.AntiAFK = RunService.Heartbeat:Connect(function()
                 pcall(function()
-                    game:GetService("VirtualUser"):CaptureController()
-                    game:GetService("VirtualUser"):ClickButton2(Vector2.new())
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new())
                 end)
             end)
             Notify("Anti AFK", "On")
@@ -702,78 +932,20 @@ TProtection:CreateToggle({
     end
 })
 
-TProtection:CreateDivider()
-
-TProtection:CreateToggle({
-    Name = "Anti Cheat Bypass",
-    CurrentValue = false,
-    Callback = function(v)
-        if v then
-            pcall(function()
-                if hookfunction then
-                    local oldNamecall
-                    local mt = getrawmetatable(game)
-                    oldNamecall = hookfunction(mt.__namecall, newcclosure(function(self, ...)
-                        local method = getnamecallmethod()
-                        local args = {...}
-                        if method == "FireServer" then
-                            local remoteName = tostring(self)
-                            if remoteName:find("Kick") or remoteName:find("Ban") or remoteName:find("Report") or remoteName:find("AC") or remoteName:find("Anti") or remoteName:find("Cheat") or remoteName:find("Detect") then
-                                Notify("Anti Cheat", "Blocked " .. remoteName)
-                                return nil
-                            end
-                            if #args > 0 then
-                                local argStr = tostring(args[1])
-                                if argStr:find("cheat") or argStr:find("hack") or argStr:find("exploit") or argStr:find("BAC") then
-                                    Notify("Anti Cheat", "Blocked detection")
-                                    return nil
-                                end
-                            end
-                        end
-                        if method == "Kick" and self == LP then
-                            Notify("Anti Cheat", "Blocked kick")
-                            return nil
-                        end
-                        return oldNamecall(self, ...)
-                    end))
-                end
-            end)
-            pcall(function()
-                for _, remote in ipairs(game:GetDescendants()) do
-                    if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
-                        local name = remote.Name:lower()
-                        if name:find("kick") or name:find("ban") or name:find("report") or name:find("ac") or name:find("anti") or name:find("cheat") or name:find("detect") or name:find("bac") then
-                            pcall(function()
-                                remote.OnClientEvent:Connect(function()
-                                    Notify("Anti Cheat", "Blocked " .. remote.Name)
-                                    return nil
-                                end)
-                            end)
-                        end
-                    end
-                end
-            end)
-            Notify("Anti Cheat", "Bypass Active")
-        else
-            Notify("Anti Cheat", "Off")
-        end
-    end
-})
-
 TAbout:CreateLabel({ Text = "Rix Hub", Style = 1 })
 TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "Steal a Brainrot", Style = 2 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "Version: 1.2", Style = 1 })
+TAbout:CreateLabel({ Text = "Version: 2.0", Style = 1 })
 TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "Player: " .. LP.Name, Style = 1 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "22 Features", Style = 1 })
+TAbout:CreateLabel({ Text = "24 Features", Style = 1 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "Anti Cheat Bypass", Style = 1 })
+TAbout:CreateLabel({ Text = "Multi-Stage AC Bypass", Style = 1 })
+TAbout:CreateLabel({ Text = "Reach Circle Visual", Style = 1 })
 TAbout:CreateLabel({ Text = "Gravity Mod", Style = 1 })
-TAbout:CreateLabel({ Text = "Jump Boost Fixed", Style = 1 })
-TAbout:CreateLabel({ Text = "Infinite Jump Fixed", Style = 1 })
+TAbout:CreateLabel({ Text = "PC & Mobile Support", Style = 1 })
 TAbout:CreateDivider()
 
 TAbout:CreateButton({
@@ -800,6 +972,7 @@ TAbout:CreateButton({
         OriginalSizes = {}
         SafeDestroy(PlatformPart)
         PlatformPart = nil
+        DestroyReachCircle()
         pcall(function()
             local hum = getHum()
             if hum then
@@ -810,6 +983,7 @@ TAbout:CreateButton({
         SafeDestroy(bodyVelocity)
         bodyVelocity = nil
         IsJumping = false
+        AntiCheatEnabled = false
         Notify("All Off", "Disabled")
     end
 })
@@ -825,8 +999,11 @@ LP.CharacterAdded:Connect(function()
             hum.WalkSpeed = OriginalWalkSpeed
             hum.JumpHeight = OriginalJumpHeight
         end
+        if AntiCheatEnabled then
+            task.delay(2, SetupAntiCheatBypass)
+        end
     end)
 end)
 
-Notify("Rix Hub", "v1.2 Loaded")
-print("RixHub v1.2 Ready")
+Notify("Rix Hub", "v2.0 Loaded - Multi-Stage AC Bypass")
+print("RixHub v2.0 Ready - Multi-Stage AntiCheat Bypass Active")
