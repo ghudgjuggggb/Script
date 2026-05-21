@@ -20,6 +20,7 @@ local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
+local TweenService = game:GetService("TweenService")
 
 if not LP then return end
 
@@ -30,6 +31,7 @@ local SpinSpd = 15
 local HitboxMult = 2
 local FlySpd = 50
 local PlatHeight = 8
+local GravityMult = 1
 local PlatformPart = nil
 local ESPObjects = {}
 local OriginalParts = {}
@@ -37,6 +39,9 @@ local OriginalSizes = {}
 local LastPos = nil
 local IsJumping = false
 local bodyVelocity = nil
+local SavedGravity = Workspace.Gravity
+local OriginalWalkSpeed = 16
+local OriginalJumpHeight = 7.2
 
 local function getChar()
     return LP.Character
@@ -68,6 +73,30 @@ local function Notify(title, content)
     })
 end
 
+local function SafeSetProperty(obj, prop, value)
+    pcall(function()
+        if obj and obj.Parent then
+            obj[prop] = value
+        end
+    end)
+end
+
+local function SafeDestroy(obj)
+    pcall(function()
+        if obj and obj.Parent then
+            obj:Destroy()
+        end
+    end)
+end
+
+local function GetRandomDelay()
+    return math.random(50, 150) / 1000
+end
+
+local function ApplyWithDelay(func)
+    task.delay(GetRandomDelay(), func)
+end
+
 local TMovement = Window:CreateTab({ Name = "Movement", Icon = "directions_run", ImageSource = "Material", ShowTitle = true })
 local TFeatures = Window:CreateTab({ Name = "Features", Icon = "star", ImageSource = "Material", ShowTitle = true })
 local TVisuals = Window:CreateTab({ Name = "Visuals", Icon = "visibility", ImageSource = "Material", ShowTitle = true })
@@ -84,7 +113,11 @@ TMovement:CreateToggle({
                 pcall(function()
                     local hum = getHum()
                     if hum then
-                        hum.WalkSpeed = 16 * SpeedMult
+                        local targetSpeed = 16 * SpeedMult
+                        local currentSpeed = hum.WalkSpeed
+                        if math.abs(currentSpeed - targetSpeed) > 0.5 then
+                            hum.WalkSpeed = targetSpeed
+                        end
                     end
                 end)
             end)
@@ -92,7 +125,7 @@ TMovement:CreateToggle({
         else
             local hum = getHum()
             if hum then
-                hum.WalkSpeed = 16
+                hum.WalkSpeed = OriginalWalkSpeed
             end
             Notify("Speed", "Off")
         end
@@ -101,7 +134,7 @@ TMovement:CreateToggle({
 
 TMovement:CreateSlider({
     Name = "Speed x",
-    Range = {1, 10},
+    Range = {1, 3},
     Increment = 0.1,
     CurrentValue = 1.5,
     Callback = function(value)
@@ -121,7 +154,10 @@ TMovement:CreateToggle({
                 pcall(function()
                     local hum = getHum()
                     if hum then
-                        hum.JumpHeight = 7.2 * JumpMult
+                        local targetHeight = OriginalJumpHeight * JumpMult
+                        if math.abs(hum.JumpHeight - targetHeight) > 0.1 then
+                            hum.JumpHeight = targetHeight
+                        end
                     end
                 end)
             end)
@@ -129,8 +165,8 @@ TMovement:CreateToggle({
         else
             local hum = getHum()
             if hum then
-                hum.JumpHeight = 7.2
-                end
+                hum.JumpHeight = OriginalJumpHeight
+            end
             Notify("Jump", "Off")
         end
     end
@@ -138,7 +174,7 @@ TMovement:CreateToggle({
 
 TMovement:CreateSlider({
     Name = "Jump x",
-    Range = {1, 10},
+    Range = {1, 3},
     Increment = 0.1,
     CurrentValue = 1.5,
     Callback = function(value)
@@ -165,7 +201,11 @@ TMovement:CreateToggle({
                         local hum = getHum()
                         if hrp and hum then
                             if hum.FloorMaterial == Enum.Material.Air then
-                                hrp.Velocity = Vector3.new(hrp.Velocity.X, 50, hrp.Velocity.Z)
+                                local bv = Instance.new("BodyVelocity")
+                                bv.MaxForce = Vector3.new(0, math.huge, 0)
+                                bv.Velocity = Vector3.new(0, 35, 0)
+                                bv.Parent = hrp
+                                game:GetService("Debris"):AddItem(bv, 0.15)
                             end
                             hum:ChangeState(Enum.HumanoidStateType.Jumping)
                         end
@@ -182,6 +222,42 @@ TMovement:CreateToggle({
             IsJumping = false
             Notify("Infinite Jump", "Off")
         end
+    end
+})
+
+TMovement:CreateDivider()
+
+TMovement:CreateToggle({
+    Name = "Gravity Mod",
+    CurrentValue = false,
+    Callback = function(v)
+        disconnect("Gravity")
+        if v then
+            Connections.Gravity = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local hrp = getHRP()
+                    if hrp then
+                        local vel = hrp.Velocity
+                        if vel.Y < 0 then
+                            hrp.Velocity = Vector3.new(vel.X, vel.Y * GravityMult, vel.Z)
+                        end
+                    end
+                end)
+            end)
+            Notify("Gravity Mod", "x" .. string.format("%.1f", GravityMult))
+        else
+            Notify("Gravity Mod", "Off")
+        end
+    end
+})
+
+TMovement:CreateSlider({
+    Name = "Gravity Multiplier",
+    Range = {0.1, 1},
+    Increment = 0.1,
+    CurrentValue = 0.5,
+    Callback = function(value)
+        GravityMult = tonumber(value) or 0.5
     end
 })
 
@@ -234,8 +310,8 @@ TFeatures:CreateToggle({
                             local pname = item.Parent.Name:lower()
                             if name:find("brainrot") or name:find("brain") or pname:find("brainrot") then
                                 local dist = (item.Position - hrp.Position).Magnitude
-                                if dist < 150 then
-                                    item.CFrame = hrp.CFrame + Vector3.new(0, 3, 0)
+                                if dist < 50 then
+                                    item.CFrame = hrp.CFrame + Vector3.new(0, 2, 0)
                                 end
                             end
                         end
@@ -262,13 +338,14 @@ TFeatures:CreateToggle({
                     PlatformPart = Instance.new("Part")
                     PlatformPart.Name = "RixPlatform"
                     PlatformPart.Shape = Enum.PartType.Block
-                    PlatformPart.Size = Vector3.new(16, 2, 16)
+                    PlatformPart.Size = Vector3.new(8, 1, 8)
                     PlatformPart.CanCollide = true
                     PlatformPart.Material = Enum.Material.Neon
                     PlatformPart.BrickColor = BrickColor.new("Cyan")
                     PlatformPart.TopSurface = Enum.SurfaceType.Smooth
                     PlatformPart.BottomSurface = Enum.SurfaceType.Smooth
                     PlatformPart.Anchored = true
+                    PlatformPart.Transparency = 0.3
                     PlatformPart.Parent = Workspace
                 end)
             end
@@ -282,12 +359,8 @@ TFeatures:CreateToggle({
             end)
             Notify("Smart Platform", "On")
         else
-            pcall(function()
-                if PlatformPart then
-                    PlatformPart:Destroy()
-                    PlatformPart = nil
-                end
-            end)
+            SafeDestroy(PlatformPart)
+            PlatformPart = nil
             Notify("Smart Platform", "Off")
         end
     end
@@ -355,8 +428,8 @@ TFeatures:CreateToggle({
 
 TFeatures:CreateSlider({
     Name = "Hitbox Size",
-    Range = {1, 20},
-    Increment = 1,
+    Range = {1, 5},
+    Increment = 0.5,
     CurrentValue = 2,
     Callback = function(value)
         HitboxMult = tonumber(value) or 2
@@ -410,10 +483,8 @@ TFeatures:CreateToggle({
             end)
             Notify("Fly Mode", "WASD+Space/Ctrl")
         else
-            if bodyVelocity then
-                bodyVelocity:Destroy()
-                bodyVelocity = nil
-            end
+            SafeDestroy(bodyVelocity)
+            bodyVelocity = nil
             Notify("Fly Mode", "Off")
         end
     end
@@ -421,7 +492,7 @@ TFeatures:CreateToggle({
 
 TFeatures:CreateSlider({
     Name = "Fly Speed",
-    Range = {10, 200},
+    Range = {10, 100},
     Increment = 1,
     CurrentValue = 50,
     Callback = function(value)
@@ -434,11 +505,7 @@ TVisuals:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         for _, bb in pairs(ESPObjects) do
-            if bb then
-                pcall(function()
-                    bb:Destroy()
-                end)
-            end
+            SafeDestroy(bb)
         end
         ESPObjects = {}
         disconnect("ESPUpdate")
@@ -452,24 +519,24 @@ TVisuals:CreateToggle({
                     local myHRP = getHRP()
                     if hrp and myHRP then
                         local bb = Instance.new("BillboardGui")
-                        bb.Size = UDim2.new(8, 0, 4, 0)
-                        bb.MaxDistance = 5000
+                        bb.Size = UDim2.new(6, 0, 3, 0)
+                        bb.MaxDistance = 2000
                         bb.Adornee = hrp
                         bb.AlwaysOnTop = true
                         bb.Name = "RixESP_" .. player.Name
                         local label = Instance.new("TextLabel")
                         label.Parent = bb
                         label.Size = UDim2.new(1, 0, 1, 0)
-                        label.BackgroundTransparency = 0.1
-                        label.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+                        label.BackgroundTransparency = 0.2
+                        label.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
                         label.TextColor3 = Color3.fromRGB(255, 255, 255)
                         label.Font = Enum.Font.GothamBold
-                        label.TextSize = 16
+                        label.TextSize = 14
                         label.Text = player.Name .. " | " .. math.floor((hrp.Position - myHRP.Position).Magnitude) .. "m"
                         label.TextStrokeTransparency = 0
                         local corner = Instance.new("UICorner")
                         corner.Parent = label
-                        corner.CornerRadius = UDim.new(0, 6)
+                        corner.CornerRadius = UDim.new(0, 4)
                         bb.Parent = Workspace
                         ESPObjects[player] = bb
                     end
@@ -515,7 +582,7 @@ TVisuals:CreateToggle({
                         if OriginalParts[part] == nil then
                             OriginalParts[part] = part.Transparency
                         end
-                        part.Transparency = 0.35
+                        part.Transparency = 0.4
                     end
                 end
             end)
@@ -542,8 +609,8 @@ TVisuals:CreateToggle({
     Callback = function(v)
         pcall(function()
             if v then
-                Lighting.Ambient = Color3.fromRGB(255, 255, 255)
-                Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+                Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+                Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
                 Lighting.GlobalShadows = false
                 Notify("Fullbright", "On")
             else
@@ -575,10 +642,6 @@ TProtection:CreateToggle({
                         return oldNamecall(self, ...)
                     end)
                     setreadonly(mt, true)
-                else
-                    LP.Kick = function()
-                        Notify("Anti Kick", "Blocked!")
-                    end
                 end
             end)
             Notify("Anti Kick", "On")
@@ -604,7 +667,7 @@ TProtection:CreateToggle({
                         return
                     end
                     local dist = (hrp.Position - LastPos).Magnitude
-                    if dist > 350 then
+                    if dist > 200 then
                         hrp.CFrame = CFrame.new(LastPos)
                     else
                         LastPos = hrp.Position
@@ -639,21 +702,78 @@ TProtection:CreateToggle({
     end
 })
 
+TProtection:CreateDivider()
+
+TProtection:CreateToggle({
+    Name = "Anti Cheat Bypass",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then
+            pcall(function()
+                if hookfunction then
+                    local oldNamecall
+                    local mt = getrawmetatable(game)
+                    oldNamecall = hookfunction(mt.__namecall, newcclosure(function(self, ...)
+                        local method = getnamecallmethod()
+                        local args = {...}
+                        if method == "FireServer" then
+                            local remoteName = tostring(self)
+                            if remoteName:find("Kick") or remoteName:find("Ban") or remoteName:find("Report") or remoteName:find("AC") or remoteName:find("Anti") or remoteName:find("Cheat") or remoteName:find("Detect") then
+                                Notify("Anti Cheat", "Blocked " .. remoteName)
+                                return nil
+                            end
+                            if #args > 0 then
+                                local argStr = tostring(args[1])
+                                if argStr:find("cheat") or argStr:find("hack") or argStr:find("exploit") or argStr:find("BAC") then
+                                    Notify("Anti Cheat", "Blocked detection")
+                                    return nil
+                                end
+                            end
+                        end
+                        if method == "Kick" and self == LP then
+                            Notify("Anti Cheat", "Blocked kick")
+                            return nil
+                        end
+                        return oldNamecall(self, ...)
+                    end))
+                end
+            end)
+            pcall(function()
+                for _, remote in ipairs(game:GetDescendants()) do
+                    if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+                        local name = remote.Name:lower()
+                        if name:find("kick") or name:find("ban") or name:find("report") or name:find("ac") or name:find("anti") or name:find("cheat") or name:find("detect") or name:find("bac") then
+                            pcall(function()
+                                remote.OnClientEvent:Connect(function()
+                                    Notify("Anti Cheat", "Blocked " .. remote.Name)
+                                    return nil
+                                end)
+                            end)
+                        end
+                    end
+                end
+            end)
+            Notify("Anti Cheat", "Bypass Active")
+        else
+            Notify("Anti Cheat", "Off")
+        end
+    end
+})
+
 TAbout:CreateLabel({ Text = "Rix Hub", Style = 1 })
 TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "Steal a Brainrot", Style = 2 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "Version: 1.1", Style = 1 })
+TAbout:CreateLabel({ Text = "Version: 1.2", Style = 1 })
 TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "Player: " .. LP.Name, Style = 1 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "20 Features", Style = 1 })
+TAbout:CreateLabel({ Text = "22 Features", Style = 1 })
 TAbout:CreateDivider()
+TAbout:CreateLabel({ Text = "Anti Cheat Bypass", Style = 1 })
+TAbout:CreateLabel({ Text = "Gravity Mod", Style = 1 })
 TAbout:CreateLabel({ Text = "Jump Boost Fixed", Style = 1 })
 TAbout:CreateLabel({ Text = "Infinite Jump Fixed", Style = 1 })
-TAbout:CreateLabel({ Text = "Mega Hitbox Fixed", Style = 1 })
-TAbout:CreateLabel({ Text = "Anti Kick Improved", Style = 1 })
-TAbout:CreateLabel({ Text = "ESP Live Update", Style = 1 })
 TAbout:CreateDivider()
 
 TAbout:CreateButton({
@@ -663,11 +783,7 @@ TAbout:CreateButton({
             disconnect(key)
         end
         for _, bb in pairs(ESPObjects) do
-            if bb then
-                pcall(function()
-                    bb:Destroy()
-                end)
-            end
+            SafeDestroy(bb)
         end
         ESPObjects = {}
         for part, trans in pairs(OriginalParts) do
@@ -682,39 +798,35 @@ TAbout:CreateButton({
             end
         end
         OriginalSizes = {}
-        pcall(function()
-            if PlatformPart then
-                PlatformPart:Destroy()
-                PlatformPart = nil
-            end
-        end)
+        SafeDestroy(PlatformPart)
+        PlatformPart = nil
         pcall(function()
             local hum = getHum()
             if hum then
-                hum.WalkSpeed = 16
-                hum.JumpHeight = 7.2
-                end
+                hum.WalkSpeed = OriginalWalkSpeed
+                hum.JumpHeight = OriginalJumpHeight
+            end
         end)
-        if bodyVelocity then
-            bodyVelocity:Destroy()
-            bodyVelocity = nil
-        end
+        SafeDestroy(bodyVelocity)
+        bodyVelocity = nil
         IsJumping = false
         Notify("All Off", "Disabled")
     end
 })
 
 LP.CharacterAdded:Connect(function()
-    task.wait(0.5)
+    task.wait(1)
     pcall(function()
         if LastPos then
             LastPos = getHRP() and getHRP().Position or Vector3.new(0, 0, 0)
         end
         local hum = getHum()
         if hum then
-            end
+            hum.WalkSpeed = OriginalWalkSpeed
+            hum.JumpHeight = OriginalJumpHeight
+        end
     end)
 end)
 
-Notify("Rix Hub", "v1.1 Loaded")
-print("RixHub v1.1 Ready")
+Notify("Rix Hub", "v1.2 Loaded")
+print("RixHub v1.2 Ready")
