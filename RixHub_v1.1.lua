@@ -23,9 +23,7 @@ local LP = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
-local HttpService = game:GetService("HttpService")
 local Debris = game:GetService("Debris")
-local StarterGui = game:GetService("StarterGui")
 
 if not LP then return end
 
@@ -51,7 +49,6 @@ local AntiCheatEnabled = false
 local OriginalGravity = Workspace.Gravity
 local OriginalWalkSpeed = 16
 local OriginalJumpHeight = 7.2
-local SpoofedValues = {}
 local BlockedRemotes = {}
 
 local function getChar()
@@ -96,14 +93,6 @@ local function SafeDestroy(obj)
     end)
 end
 
-local function SafeSetProperty(obj, prop, value)
-    pcall(function()
-        if obj and obj.Parent then
-            obj[prop] = value
-        end
-    end)
-end
-
 local function CreateReachCircle()
     pcall(function()
         if ReachGui then SafeDestroy(ReachGui) end
@@ -112,7 +101,6 @@ local function CreateReachCircle()
         ReachGui.ResetOnSpawn = false
         ReachGui.IgnoreGuiInset = true
         ReachGui.Parent = LP.PlayerGui
-
         ReachCircle = Instance.new("Frame")
         ReachCircle.Name = "ReachCircle"
         ReachCircle.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -122,16 +110,13 @@ local function CreateReachCircle()
         ReachCircle.BackgroundColor3 = Color3.fromRGB(0, 255, 200)
         ReachCircle.BorderSizePixel = 0
         ReachCircle.Parent = ReachGui
-
         local corner = Instance.new("UICorner")
         corner.CornerRadius = UDim.new(1, 0)
         corner.Parent = ReachCircle
-
         local stroke = Instance.new("UIStroke")
         stroke.Color = Color3.fromRGB(0, 255, 200)
         stroke.Thickness = 2
         stroke.Parent = ReachCircle
-
         local label = Instance.new("TextLabel")
         label.Name = "DistanceLabel"
         label.Size = UDim2.new(1, 0, 0, 20)
@@ -170,78 +155,56 @@ local function SetupAntiCheatBypass()
         if not mt then return end
         local oldNamecall = mt.__namecall
         setreadonly(mt, false)
-
         mt.__namecall = newcclosure(function(self, ...)
             local method = getnamecallmethod()
             local args = {...}
-
             if method == "FireServer" or method == "InvokeServer" then
                 local remoteName = tostring(self)
                 local lowerName = remoteName:lower()
-
-                if lowerName:find("kick") or lowerName:find("ban") or lowerName:find("report") or 
-                   lowerName:find("ac") or lowerName:find("anti") or lowerName:find("cheat") or 
-                   lowerName:find("detect") or lowerName:find("bac") or lowerName:find("hack") or
-                   lowerName:find("exploit") or lowerName:find("flag") or lowerName:find("log") or
-                   lowerName:find("punish") or lowerName:find("moderate") or lowerName:find("security") then
-
+                if lowerName:find("kick") or lowerName:find("ban") or lowerName:find("report") or lowerName:find("ac") or lowerName:find("anti") or lowerName:find("cheat") or lowerName:find("detect") or lowerName:find("bac") or lowerName:find("hack") or lowerName:find("exploit") or lowerName:find("flag") or lowerName:find("log") or lowerName:find("punish") or lowerName:find("moderate") or lowerName:find("security") then
                     if not BlockedRemotes[remoteName] then
                         BlockedRemotes[remoteName] = true
                         Notify("AC Bypass", "Blocked: " .. remoteName)
                     end
                     return nil
                 end
-
                 if #args > 0 then
                     for i = 1, #args do
                         local argStr = tostring(args[i]):lower()
-                        if argStr:find("cheat") or argStr:find("hack") or argStr:find("exploit") or 
-                           argStr:find("bac") or argStr:find("speed") or argStr:find("fly") or
-                           argStr:find("teleport") or argStr:find("noclip") then
+                        if argStr:find("cheat") or argStr:find("hack") or argStr:find("exploit") or argStr:find("bac") or argStr:find("speed") or argStr:find("fly") or argStr:find("teleport") or argStr:find("noclip") then
                             return nil
                         end
                     end
                 end
             end
-
             if method == "Kick" and (self == LP or self == LP.Character) then
-                Notify("AC Bypass", "Kick blocked!")
+                Notify("AC Bypass", "Kick blocked")
                 return nil
             end
-
             if method == "Destroy" and self == LP then
-                Notify("AC Bypass", "Destroy blocked!")
+                Notify("AC Bypass", "Destroy blocked")
                 return nil
             end
-
             return oldNamecall(self, ...)
         end)
-
         setreadonly(mt, true)
     end)
-
     pcall(function()
         if hookfunction then
             local oldKick = hookfunction(LP.Kick, function(self, ...)
                 if self == LP then
-                    Notify("AC Bypass", "Kick function blocked!")
+                    Notify("AC Bypass", "Kick function blocked")
                     return nil
                 end
                 return oldKick(self, ...)
             end)
         end
     end)
-
     pcall(function()
         for _, obj in ipairs(game:GetDescendants()) do
             if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
                 local name = obj.Name:lower()
-                if name:find("kick") or name:find("ban") or name:find("report") or 
-                   name:find("ac") or name:find("anti") or name:find("cheat") or 
-                   name:find("detect") or name:find("bac") or name:find("hack") or
-                   name:find("exploit") or name:find("flag") or name:find("log") or
-                   name:find("punish") or name:find("moderate") or name:find("security") then
-
+                if name:find("kick") or name:find("ban") or name:find("report") or name:find("ac") or name:find("anti") or name:find("cheat") or name:find("detect") or name:find("bac") or name:find("hack") or name:find("exploit") or name:find("flag") or name:find("log") or name:find("punish") or name:find("moderate") or name:find("security") then
                     pcall(function()
                         obj.OnClientEvent:Connect(function(...)
                             Notify("AC Bypass", "Event blocked: " .. obj.Name)
@@ -252,35 +215,13 @@ local function SetupAntiCheatBypass()
             end
         end
     end)
-
     pcall(function()
         LP.CharacterRemoving:Connect(function()
             if AntiCheatEnabled then
-                task.wait(0.1)
+                task.wait(0.5)
                 SetupAntiCheatBypass()
             end
         end)
-    end)
-end
-
-local function SpoofHumanoidProperties()
-    pcall(function()
-        local hum = getHum()
-        if not hum then return end
-
-        if not SpoofedValues[hum] then
-            SpoofedValues[hum] = {}
-        end
-
-        local function spoof(prop, realValue, fakeValue)
-            pcall(function()
-                hum[prop] = realValue
-                SpoofedValues[hum][prop] = {Real = realValue, Fake = fakeValue}
-            end)
-        end
-
-        spoof("WalkSpeed", 16 * SpeedMult, 16)
-        spoof("JumpHeight", OriginalJumpHeight * JumpMult, OriginalJumpHeight)
     end)
 end
 
@@ -504,7 +445,7 @@ TFeatures:CreateToggle({
                     end
                 end)
             end)
-            Notify("Auto Take", "Collecting...")
+            Notify("Auto Take", "Collecting")
         else
             Notify("Auto Take", "Off")
         end
@@ -866,7 +807,7 @@ TProtection:CreateToggle({
                     mt.__namecall = newcclosure(function(self, ...)
                         local method = getnamecallmethod()
                         if method == "Kick" and self == LP then
-                            Notify("Anti Kick", "Blocked!")
+                            Notify("Anti Kick", "Blocked")
                             return nil
                         end
                         return oldNamecall(self, ...)
@@ -936,7 +877,7 @@ TAbout:CreateLabel({ Text = "Rix Hub", Style = 1 })
 TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "Steal a Brainrot", Style = 2 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "Version: 2.0", Style = 1 })
+TAbout:CreateLabel({ Text = "Version: 1.1", Style = 1 })
 TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "Player: " .. LP.Name, Style = 1 })
 TAbout:CreateDivider()
@@ -945,7 +886,7 @@ TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "Multi-Stage AC Bypass", Style = 1 })
 TAbout:CreateLabel({ Text = "Reach Circle Visual", Style = 1 })
 TAbout:CreateLabel({ Text = "Gravity Mod", Style = 1 })
-TAbout:CreateLabel({ Text = "PC & Mobile Support", Style = 1 })
+TAbout:CreateLabel({ Text = "PC and Mobile Support", Style = 1 })
 TAbout:CreateDivider()
 
 TAbout:CreateButton({
@@ -1005,5 +946,5 @@ LP.CharacterAdded:Connect(function()
     end)
 end)
 
-Notify("Rix Hub", "v2.0 Loaded - Multi-Stage AC Bypass")
-print("RixHub v2.0 Ready - Multi-Stage AntiCheat Bypass Active")
+Notify("Rix Hub", "v1.1 Loaded")
+print("RixHub v1.1 Ready")
