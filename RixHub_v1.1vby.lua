@@ -1205,9 +1205,7 @@ TAbout:CreateLabel({ Text = "Optimized - No Lag", Style = 1 })
 TAbout:CreateLabel({ Text = "PC and Mobile Support", Style = 1 })
 TAbout:CreateDivider()
 
-TAbout:CreateButton({
-    Name = "Disable All",
-    Callback = function()
+
         for key, _ in pairs(Connections) do
             disconnect(key)
         end
@@ -1223,6 +1221,12 @@ TAbout:CreateButton({
             SafeDestroy(line)
         end
         TrajectoryLines = {}
+        for player in pairs(LineBeams) do
+            RemoveLine(player)
+        end
+        for player in pairs(ESPJumpHighlights) do
+            RemoveJumpESP(player)
+        end
         for part, trans in pairs(OriginalParts) do
             if part and part.Parent then
                 part.Transparency = trans
@@ -1241,6 +1245,7 @@ TAbout:CreateButton({
         SafeDestroy(PlatformPart)
         PlatformPart = nil
         DestroyReachCircle()
+        RemoveAirControl()
         local hum = getHum()
         if hum then
             hum.WalkSpeed = OriginalWalkSpeed
@@ -1249,8 +1254,17 @@ TAbout:CreateButton({
         SafeDestroy(bodyVelocity)
         bodyVelocity = nil
         IsJumping = false
-        AntiCheatEnabled = false
+        AutoFarm = false
+        AutoJoinMatch = false
+        AutoSpin = false
+        PowerfulServe = false
+        LinesEnabled = false
+        ESPJumpEnabled = false
+        NightMode = false
+        FullbrightMode = false
+        AntiCheatEnabled = true
         ProtectedPlayers = {}
+        BlockedRemotes = {}
         FrameCounter = 0
         Notify("All Off", "Disabled")
     end
@@ -1276,6 +1290,22 @@ Players.PlayerAdded:Connect(function(player)
         ProtectedPlayers[player.Name] = true
     end
 end)
+
+CoreGui.ChildAdded:Connect(function(child)
+    if child:IsA("ScreenGui") and child.Name == "ErrorPrompt" then
+        task.wait(2)
+        TeleportService:Teleport(game.PlaceId, LP)
+    end
+end)
+
+coroutine.wrap(function()
+    while true do
+        task.wait(0.5)
+        if AutoFarm then
+            CheckRoundOverStats()
+        end
+    end
+end)()
 
 Notify("Rix Hub", "v1.1 Loaded - Volleyball Legends - Optimized")
 print("RixHub v1.1 Ready - Volleyball Legends Edition - No Lag")
