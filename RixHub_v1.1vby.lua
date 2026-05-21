@@ -26,6 +26,7 @@ local VirtualUser = game:GetService("VirtualUser")
 local Debris = game:GetService("Debris")
 local StarterGui = game:GetService("StarterGui")
 local CoreGui = game:GetService("CoreGui")
+local HttpService = game:GetService("HttpService")
 
 if not LP then return end
 
@@ -58,6 +59,15 @@ local OriginalJumpHeight = 7.2
 local BlockedRemotes = {}
 local ProtectedPlayers = {}
 local CurrentBall = nil
+local LastBallCheck = 0
+local BallCheckInterval = 0.5
+local FrameCounter = 0
+local UpdateInterval = 3
+local ESPUpdateInterval = 5
+local LastESPUpdate = 0
+local CachedDescendants = {}
+local LastDescendantsUpdate = 0
+local DescendantsUpdateInterval = 2
 
 local function getChar()
     return LP.Character
@@ -169,19 +179,31 @@ local function DestroyReachCircle()
 end
 
 local function FindBall()
-    pcall(function()
-        CurrentBall = nil
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") then
-                local name = obj.Name:lower()
-                if name:find("ball") or name:find("volleyball") or name:find("vb") then
-                    CurrentBall = obj
-                    break
-                end
+    local now = tick()
+    if now - LastBallCheck < BallCheckInterval and CurrentBall and CurrentBall.Parent then
+        return CurrentBall
+    end
+    LastBallCheck = now
+    CurrentBall = nil
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local name = obj.Name:lower()
+            if name:find("ball") or name:find("volleyball") or name:find("vb") then
+                CurrentBall = obj
+                break
             end
         end
-    end)
+    end
     return CurrentBall
+end
+
+local function GetCachedDescendants()
+    local now = tick()
+    if now - LastDescendantsUpdate > DescendantsUpdateInterval then
+        CachedDescendants = Workspace:GetDescendants()
+        LastDescendantsUpdate = now
+    end
+    return CachedDescendants
 end
 
 local function SetupAntiCheatBypass()
@@ -319,16 +341,15 @@ TMovement:CreateToggle({
     Callback = function(v)
         disconnect("Speed")
         if v then
+            local hum = getHum()
+            if hum then
+                hum.WalkSpeed = 16 * SpeedMult
+            end
             Connections.Speed = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local hum = getHum()
-                    if hum then
-                        local target = 16 * SpeedMult
-                        if math.abs(hum.WalkSpeed - target) > 0.1 then
-                            hum.WalkSpeed = target
-                        end
-                    end
-                end)
+                local hum = getHum()
+                if hum and hum.WalkSpeed ~= 16 * SpeedMult then
+                    hum.WalkSpeed = 16 * SpeedMult
+                end
             end)
             Notify("Speed Boost", "x" .. string.format("%.1f", SpeedMult))
         else
@@ -359,16 +380,15 @@ TMovement:CreateToggle({
     Callback = function(v)
         disconnect("Jump")
         if v then
+            local hum = getHum()
+            if hum then
+                hum.JumpHeight = OriginalJumpHeight * JumpMult
+            end
             Connections.Jump = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local hum = getHum()
-                    if hum then
-                        local target = OriginalJumpHeight * JumpMult
-                        if math.abs(hum.JumpHeight - target) > 0.1 then
-                            hum.JumpHeight = target
-                        end
-                    end
-                end)
+                local hum = getHum()
+                if hum and hum.JumpHeight ~= OriginalJumpHeight * JumpMult then
+                    hum.JumpHeight = OriginalJumpHeight * JumpMult
+                end
             end)
             Notify("Jump Boost", "x" .. string.format("%.1f", JumpMult))
         else
@@ -405,20 +425,18 @@ TMovement:CreateToggle({
                 if gpe then return end
                 if input.KeyCode == Enum.KeyCode.Space and not IsJumping then
                     IsJumping = true
-                    pcall(function()
-                        local hrp = getHRP()
-                        local hum = getHum()
-                        if hrp and hum then
-                            if hum.FloorMaterial == Enum.Material.Air then
-                                local bv = Instance.new("BodyVelocity")
-                                bv.MaxForce = Vector3.new(0, math.huge, 0)
-                                bv.Velocity = Vector3.new(0, 30, 0)
-                                bv.Parent = hrp
-                                Debris:AddItem(bv, 0.1)
-                            end
-                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    local hrp = getHRP()
+                    local hum = getHum()
+                    if hrp and hum then
+                        if hum.FloorMaterial == Enum.Material.Air then
+                            local bv = Instance.new("BodyVelocity")
+                            bv.MaxForce = Vector3.new(0, math.huge, 0)
+                            bv.Velocity = Vector3.new(0, 30, 0)
+                            bv.Parent = hrp
+                            Debris:AddItem(bv, 0.1)
                         end
-                    end)
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    end
                 end
             end)
             Connections.InfiniteJumpEnded = UserInputService.InputEnded:Connect(function(input)
@@ -443,15 +461,13 @@ TMovement:CreateToggle({
         disconnect("Gravity")
         if v then
             Connections.Gravity = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local hrp = getHRP()
-                    if hrp then
-                        local vel = hrp.Velocity
-                        if vel.Y < -5 then
-                            hrp.Velocity = Vector3.new(vel.X, vel.Y * GravityMult, vel.Z)
-                        end
+                local hrp = getHRP()
+                if hrp then
+                    local vel = hrp.Velocity
+                    if vel.Y < -5 then
+                        hrp.Velocity = Vector3.new(vel.X, vel.Y * GravityMult, vel.Z)
                     end
-                end)
+                end
             end)
             Notify("Gravity Mod", "x" .. string.format("%.1f", GravityMult))
         else
@@ -479,18 +495,16 @@ TMovement:CreateToggle({
         disconnect("AntiStun")
         if v then
             Connections.AntiStun = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local hum = getHum()
-                    if hum then
-                        if hum.PlatformStand then
-                            hum.PlatformStand = false
-                        end
-                        local state = hum:GetState()
-                        if state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.Ragdoll then
-                            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                        end
+                local hum = getHum()
+                if hum then
+                    if hum.PlatformStand then
+                        hum.PlatformStand = false
                     end
-                end)
+                    local state = hum:GetState()
+                    if state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.Ragdoll then
+                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    end
+                end
             end)
             Notify("Anti Stun", "On")
         else
@@ -508,22 +522,20 @@ TMovement:CreateToggle({
         disconnect("AntiRagdoll")
         if v then
             Connections.AntiRagdoll = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local char = getChar()
-                    if not char then return end
-                    for _, part in ipairs(char:GetDescendants()) do
-                        if part:IsA("BallSocketConstraint") or part:IsA("HingeConstraint") then
-                            SafeDestroy(part)
-                        end
+                local char = getChar()
+                if not char then return end
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BallSocketConstraint") or part:IsA("HingeConstraint") then
+                        SafeDestroy(part)
                     end
-                    local hum = getHum()
-                    if hum then
-                        if hum.PlatformStand then
-                            hum.PlatformStand = false
-                        end
-                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+                local hum = getHum()
+                if hum then
+                    if hum.PlatformStand then
+                        hum.PlatformStand = false
                     end
-                end)
+                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
             end)
             Notify("Anti Ragdoll", "On")
         else
@@ -541,12 +553,10 @@ TMovement:CreateToggle({
         disconnect("Spin")
         if v then
             Connections.Spin = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local hrp = getHRP()
-                    if hrp then
-                        hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinSpd), 0)
-                    end
-                end)
+                local hrp = getHRP()
+                if hrp then
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinSpd), 0)
+                end
             end)
             Notify("Spin Mod", "Speed " .. SpinSpd)
         else
@@ -571,38 +581,43 @@ TFeatures:CreateToggle({
     Callback = function(v)
         disconnect("BallHitbox")
         if v then
+            local ball = FindBall()
+            if ball and not OriginalBallSizes[ball] then
+                OriginalBallSizes[ball] = ball.Size
+                ball.Size = ball.Size * BallHitboxMult
+                ball.Transparency = 0.3
+                ball.Material = Enum.Material.Neon
+                ball.Color = Color3.fromRGB(255, 0, 100)
+            end
             Connections.BallHitbox = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local ball = FindBall()
-                    if ball and not OriginalBallSizes[ball] then
+                local ball = FindBall()
+                if ball then
+                    if not OriginalBallSizes[ball] then
                         OriginalBallSizes[ball] = ball.Size
                         ball.Size = ball.Size * BallHitboxMult
                         ball.Transparency = 0.3
                         ball.Material = Enum.Material.Neon
                         ball.Color = Color3.fromRGB(255, 0, 100)
-                    end
-                    if ball and OriginalBallSizes[ball] then
+                    else
                         local expectedSize = OriginalBallSizes[ball] * BallHitboxMult
                         if (ball.Size - expectedSize).Magnitude > 0.1 then
                             ball.Size = expectedSize
                         end
                     end
-                end)
+                end
             end)
             Notify("Ball Hitbox", "x" .. BallHitboxMult)
         else
             disconnect("BallHitbox")
-            pcall(function()
-                for ball, size in pairs(OriginalBallSizes) do
-                    if ball and ball.Parent then
-                        ball.Size = size
-                        ball.Transparency = 0
-                        ball.Material = Enum.Material.Plastic
-                        ball.Color = Color3.fromRGB(255, 255, 255)
-                    end
+            for ball, size in pairs(OriginalBallSizes) do
+                if ball and ball.Parent then
+                    ball.Size = size
+                    ball.Transparency = 0
+                    ball.Material = Enum.Material.Plastic
+                    ball.Color = Color3.fromRGB(255, 255, 255)
                 end
-                OriginalBallSizes = {}
-            end)
+            end
+            OriginalBallSizes = {}
             Notify("Ball Hitbox", "Off")
         end
     end
@@ -627,28 +642,24 @@ TFeatures:CreateToggle({
         disconnect("Platform")
         if v then
             if not PlatformPart then
-                pcall(function()
-                    PlatformPart = Instance.new("Part")
-                    PlatformPart.Name = "RixPlatform"
-                    PlatformPart.Shape = Enum.PartType.Block
-                    PlatformPart.Size = Vector3.new(8, 1, 8)
-                    PlatformPart.CanCollide = true
-                    PlatformPart.Material = Enum.Material.Neon
-                    PlatformPart.BrickColor = BrickColor.new("Cyan")
-                    PlatformPart.TopSurface = Enum.SurfaceType.Smooth
-                    PlatformPart.BottomSurface = Enum.SurfaceType.Smooth
-                    PlatformPart.Anchored = true
-                    PlatformPart.Transparency = 0.3
-                    PlatformPart.Parent = Workspace
-                end)
+                PlatformPart = Instance.new("Part")
+                PlatformPart.Name = "RixPlatform"
+                PlatformPart.Shape = Enum.PartType.Block
+                PlatformPart.Size = Vector3.new(8, 1, 8)
+                PlatformPart.CanCollide = true
+                PlatformPart.Material = Enum.Material.Neon
+                PlatformPart.BrickColor = BrickColor.new("Cyan")
+                PlatformPart.TopSurface = Enum.SurfaceType.Smooth
+                PlatformPart.BottomSurface = Enum.SurfaceType.Smooth
+                PlatformPart.Anchored = true
+                PlatformPart.Transparency = 0.3
+                PlatformPart.Parent = Workspace
             end
             Connections.Platform = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local hrp = getHRP()
-                    if hrp and PlatformPart then
-                        PlatformPart.CFrame = CFrame.new(hrp.Position.X, hrp.Position.Y - PlatHeight, hrp.Position.Z)
-                    end
-                end)
+                local hrp = getHRP()
+                if hrp and PlatformPart then
+                    PlatformPart.CFrame = CFrame.new(hrp.Position.X, hrp.Position.Y - PlatHeight, hrp.Position.Z)
+                end
             end)
             Notify("Smart Platform", "On")
         else
@@ -685,34 +696,32 @@ TFeatures:CreateToggle({
                 bodyVelocity.Velocity = Vector3.new(0, 0, 0)
             end
             Connections.Fly = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local hrp = getHRP()
-                    if not hrp or not bodyVelocity then return end
-                    local moveDirection = Vector3.new(0, 0, 0)
-                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                        moveDirection = moveDirection + hrp.CFrame.LookVector
-                    end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                        moveDirection = moveDirection - hrp.CFrame.RightVector
-                    end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                        moveDirection = moveDirection - hrp.CFrame.LookVector
-                    end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                        moveDirection = moveDirection + hrp.CFrame.RightVector
-                    end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                        moveDirection = moveDirection + Vector3.new(0, 1, 0)
-                    end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-                        moveDirection = moveDirection - Vector3.new(0, 1, 0)
-                    end
-                    if moveDirection.Magnitude > 0 then
-                        bodyVelocity.Velocity = moveDirection.Unit * FlySpd
-                    else
-                        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                    end
-                end)
+                local hrp = getHRP()
+                if not hrp or not bodyVelocity then return end
+                local moveDirection = Vector3.new(0, 0, 0)
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                    moveDirection = moveDirection + hrp.CFrame.LookVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                    moveDirection = moveDirection - hrp.CFrame.RightVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                    moveDirection = moveDirection - hrp.CFrame.LookVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                    moveDirection = moveDirection + hrp.CFrame.RightVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                    moveDirection = moveDirection + Vector3.new(0, 1, 0)
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                    moveDirection = moveDirection - Vector3.new(0, 1, 0)
+                end
+                if moveDirection.Magnitude > 0 then
+                    bodyVelocity.Velocity = moveDirection.Unit * FlySpd
+                else
+                    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                end
             end)
             Notify("Fly Mode", "WASD+Space/Ctrl")
         else
@@ -747,77 +756,77 @@ TVisuals:CreateToggle({
                 if player == LP or not player.Character then
                     return
                 end
-                pcall(function()
-                    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                    local myHRP = getHRP()
-                    if hrp and myHRP then
-                        local dist = (hrp.Position - myHRP.Position).Magnitude
-                        if dist > ESPRange then return end
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                local myHRP = getHRP()
+                if hrp and myHRP then
+                    local dist = (hrp.Position - myHRP.Position).Magnitude
+                    if dist > ESPRange then return end
 
-                        local bb = Instance.new("BillboardGui")
-                        bb.Size = UDim2.new(8, 0, 4, 0)
-                        bb.MaxDistance = ESPRange
-                        bb.Adornee = hrp
-                        bb.AlwaysOnTop = true
-                        bb.Name = "RixESP_" .. player.Name
+                    local bb = Instance.new("BillboardGui")
+                    bb.Size = UDim2.new(8, 0, 4, 0)
+                    bb.MaxDistance = ESPRange
+                    bb.Adornee = hrp
+                    bb.AlwaysOnTop = true
+                    bb.Name = "RixESP_" .. player.Name
 
-                        local frame = Instance.new("Frame")
-                        frame.Parent = bb
-                        frame.Size = UDim2.new(1, 0, 1, 0)
-                        frame.BackgroundTransparency = 0.1
-                        frame.BorderSizePixel = 0
-                        frame.Parent = bb
-                        CreateGradientFrame(frame, Color3.fromRGB(0, 255, 200), Color3.fromRGB(0, 100, 255))
+                    local frame = Instance.new("Frame")
+                    frame.Size = UDim2.new(1, 0, 1, 0)
+                    frame.BackgroundTransparency = 0.1
+                    frame.BorderSizePixel = 0
+                    frame.Parent = bb
+                    CreateGradientFrame(frame, Color3.fromRGB(0, 255, 200), Color3.fromRGB(0, 100, 255))
 
-                        local label = Instance.new("TextLabel")
-                        label.Parent = frame
-                        label.Size = UDim2.new(1, 0, 0.5, 0)
-                        label.Position = UDim2.new(0, 0, 0, 0)
-                        label.BackgroundTransparency = 1
-                        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-                        label.Font = Enum.Font.GothamBold
-                        label.TextSize = 16
-                        label.Text = player.Name
-                        label.TextStrokeTransparency = 0
+                    local label = Instance.new("TextLabel")
+                    label.Parent = frame
+                    label.Size = UDim2.new(1, 0, 0.5, 0)
+                    label.Position = UDim2.new(0, 0, 0, 0)
+                    label.BackgroundTransparency = 1
+                    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    label.Font = Enum.Font.GothamBold
+                    label.TextSize = 16
+                    label.Text = player.Name
+                    label.TextStrokeTransparency = 0
 
-                        local distLabel = Instance.new("TextLabel")
-                        distLabel.Parent = frame
-                        distLabel.Size = UDim2.new(1, 0, 0.5, 0)
-                        distLabel.Position = UDim2.new(0, 0, 0.5, 0)
-                        distLabel.BackgroundTransparency = 1
-                        distLabel.TextColor3 = Color3.fromRGB(200, 255, 255)
-                        distLabel.Font = Enum.Font.GothamBold
-                        distLabel.TextSize = 14
-                        distLabel.Text = math.floor(dist) .. "m"
-                        distLabel.TextStrokeTransparency = 0
+                    local distLabel = Instance.new("TextLabel")
+                    distLabel.Parent = frame
+                    distLabel.Size = UDim2.new(1, 0, 0.5, 0)
+                    distLabel.Position = UDim2.new(0, 0, 0.5, 0)
+                    distLabel.BackgroundTransparency = 1
+                    distLabel.TextColor3 = Color3.fromRGB(200, 255, 255)
+                    distLabel.Font = Enum.Font.GothamBold
+                    distLabel.TextSize = 14
+                    distLabel.Text = math.floor(dist) .. "m"
+                    distLabel.TextStrokeTransparency = 0
 
-                        local corner = Instance.new("UICorner")
-                        corner.Parent = frame
-                        corner.CornerRadius = UDim.new(0, 8)
+                    local corner = Instance.new("UICorner")
+                    corner.Parent = frame
+                    corner.CornerRadius = UDim.new(0, 8)
 
-                        bb.Parent = Workspace
-                        ESPObjects[player] = bb
-                    end
-                end)
+                    bb.Parent = Workspace
+                    ESPObjects[player] = bb
+                end
             end
             for _, player in ipairs(Players:GetPlayers()) do
                 createESP(player)
             end
             Connections.ESPUpdate = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local myHRP = getHRP()
-                    if not myHRP then return end
-                    for player, bb in pairs(ESPObjects) do
-                        if player.Character and bb then
-                            local frame = bb:FindFirstChild("Frame")
-                            local distLabel = frame and frame:FindFirstChild("TextLabel", true)
-                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                            if distLabel and hrp then
-                                distLabel.Text = math.floor((hrp.Position - myHRP.Position).Magnitude) .. "m"
-                            end
+                FrameCounter = FrameCounter + 1
+                if FrameCounter % UpdateInterval ~= 0 then return end
+                local now = tick()
+                if now - LastESPUpdate < ESPUpdateInterval then return end
+                LastESPUpdate = now
+                local myHRP = getHRP()
+                if not myHRP then return end
+                for player, bb in pairs(ESPObjects) do
+                    if player.Character and bb then
+                        local frame = bb:FindFirstChild("Frame")
+                        local distLabel = frame and frame:FindFirstChild("TextLabel", true)
+                        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                        if distLabel and hrp then
+                            distLabel.Text = math.floor((hrp.Position - myHRP.Position).Magnitude) .. "m"
                         end
                     end
-                end)
+                end
             end)
             Notify("Player ESP", "On")
         else
@@ -850,55 +859,53 @@ TVisuals:CreateToggle({
         if v then
             local function createBallESP(ball)
                 if not ball or not ball:IsA("BasePart") then return end
-                pcall(function()
-                    local bb = Instance.new("BillboardGui")
-                    bb.Size = UDim2.new(10, 0, 5, 0)
-                    bb.MaxDistance = BallESPRange
-                    bb.Adornee = ball
-                    bb.AlwaysOnTop = true
-                    bb.Name = "RixBallESP"
+                local bb = Instance.new("BillboardGui")
+                bb.Size = UDim2.new(10, 0, 5, 0)
+                bb.MaxDistance = BallESPRange
+                bb.Adornee = ball
+                bb.AlwaysOnTop = true
+                bb.Name = "RixBallESP"
 
-                    local frame = Instance.new("Frame")
-                    frame.Parent = bb
-                    frame.Size = UDim2.new(1, 0, 1, 0)
-                    frame.BackgroundTransparency = 0.05
-                    frame.BorderSizePixel = 0
-                    frame.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-                    CreateGradientFrame(frame, Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 150, 0))
+                local frame = Instance.new("Frame")
+                frame.Size = UDim2.new(1, 0, 1, 0)
+                frame.BackgroundTransparency = 0.05
+                frame.BorderSizePixel = 0
+                frame.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+                frame.Parent = bb
+                CreateGradientFrame(frame, Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 150, 0))
 
-                    local label = Instance.new("TextLabel")
-                    label.Parent = frame
-                    label.Size = UDim2.new(1, 0, 0.5, 0)
-                    label.BackgroundTransparency = 1
-                    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-                    label.Font = Enum.Font.GothamBold
-                    label.TextSize = 18
-                    label.Text = "BALL"
-                    label.TextStrokeTransparency = 0
+                local label = Instance.new("TextLabel")
+                label.Parent = frame
+                label.Size = UDim2.new(1, 0, 0.5, 0)
+                label.BackgroundTransparency = 1
+                label.TextColor3 = Color3.fromRGB(255, 255, 255)
+                label.Font = Enum.Font.GothamBold
+                label.TextSize = 18
+                label.Text = "BALL"
+                label.TextStrokeTransparency = 0
 
-                    local velLabel = Instance.new("TextLabel")
-                    velLabel.Parent = frame
-                    velLabel.Size = UDim2.new(1, 0, 0.5, 0)
-                    velLabel.Position = UDim2.new(0, 0, 0.5, 0)
-                    velLabel.BackgroundTransparency = 1
-                    velLabel.TextColor3 = Color3.fromRGB(255, 255, 200)
-                    velLabel.Font = Enum.Font.GothamBold
-                    velLabel.TextSize = 14
-                    velLabel.Text = "Speed: " .. math.floor(ball.Velocity.Magnitude) .. ""
-                    velLabel.TextStrokeTransparency = 0
+                local velLabel = Instance.new("TextLabel")
+                velLabel.Parent = frame
+                velLabel.Size = UDim2.new(1, 0, 0.5, 0)
+                velLabel.Position = UDim2.new(0, 0, 0.5, 0)
+                velLabel.BackgroundTransparency = 1
+                velLabel.TextColor3 = Color3.fromRGB(255, 255, 200)
+                velLabel.Font = Enum.Font.GothamBold
+                velLabel.TextSize = 14
+                velLabel.Text = "Speed: " .. math.floor(ball.Velocity.Magnitude) .. ""
+                velLabel.TextStrokeTransparency = 0
 
-                    local corner = Instance.new("UICorner")
-                    corner.Parent = frame
-                    corner.CornerRadius = UDim.new(0, 10)
+                local corner = Instance.new("UICorner")
+                corner.Parent = frame
+                corner.CornerRadius = UDim.new(0, 10)
 
-                    local glow = Instance.new("UIStroke")
-                    glow.Parent = frame
-                    glow.Color = Color3.fromRGB(255, 100, 100)
-                    glow.Thickness = 3
+                local glow = Instance.new("UIStroke")
+                glow.Parent = frame
+                glow.Color = Color3.fromRGB(255, 100, 100)
+                glow.Thickness = 3
 
-                    bb.Parent = Workspace
-                    BallESPObjects[ball] = bb
-                end)
+                bb.Parent = Workspace
+                BallESPObjects[ball] = bb
             end
 
             local ball = FindBall()
@@ -907,26 +914,26 @@ TVisuals:CreateToggle({
             end
 
             Connections.BallESPUpdate = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local ball = FindBall()
-                    if ball and not BallESPObjects[ball] then
-                        createBallESP(ball)
-                    end
-                    for b, bb in pairs(BallESPObjects) do
-                        if b and b.Parent and bb then
-                            local velLabel = bb:FindFirstChild("Frame", true)
+                FrameCounter = FrameCounter + 1
+                if FrameCounter % UpdateInterval ~= 0 then return end
+                local ball = FindBall()
+                if ball and not BallESPObjects[ball] then
+                    createBallESP(ball)
+                end
+                for b, bb in pairs(BallESPObjects) do
+                    if b and b.Parent and bb then
+                        local velLabel = bb:FindFirstChild("Frame", true)
+                        if velLabel then
+                            velLabel = velLabel:FindFirstChild("TextLabel", true)
                             if velLabel then
-                                velLabel = velLabel:FindFirstChild("TextLabel", true)
-                                if velLabel then
-                                    velLabel.Text = "Speed: " .. math.floor(b.Velocity.Magnitude) .. ""
-                                end
+                                velLabel.Text = "Speed: " .. math.floor(b.Velocity.Magnitude) .. ""
                             end
-                        else
-                            SafeDestroy(bb)
-                            BallESPObjects[b] = nil
                         end
+                    else
+                        SafeDestroy(bb)
+                        BallESPObjects[b] = nil
                     end
-                end)
+                end
             end)
             Notify("Ball ESP", "On")
         else
@@ -954,41 +961,41 @@ TVisuals:CreateToggle({
         disconnect("Trajectory")
         if v then
             Connections.Trajectory = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    for _, line in ipairs(TrajectoryLines) do
-                        SafeDestroy(line)
-                    end
-                    TrajectoryLines = {}
+                FrameCounter = FrameCounter + 1
+                if FrameCounter % 2 ~= 0 then return end
+                for _, line in ipairs(TrajectoryLines) do
+                    SafeDestroy(line)
+                end
+                TrajectoryLines = {}
 
-                    local ball = FindBall()
-                    if not ball then return end
+                local ball = FindBall()
+                if not ball then return end
 
-                    local startPos = ball.Position
-                    local velocity = ball.Velocity
-                    local gravity = Workspace.Gravity
-                    local points = {}
-                    local step = 0.1
-                    local maxTime = 3
+                local startPos = ball.Position
+                local velocity = ball.Velocity
+                local gravity = Workspace.Gravity
+                local points = {}
+                local step = 0.15
+                local maxTime = 3
 
-                    for t = 0, maxTime, step do
-                        local pos = startPos + velocity * t + Vector3.new(0, -0.5 * gravity * t * t, 0)
-                        table.insert(points, pos)
-                    end
+                for t = 0, maxTime, step do
+                    local pos = startPos + velocity * t + Vector3.new(0, -0.5 * gravity * t * t, 0)
+                    table.insert(points, pos)
+                end
 
-                    for i = 1, #points - 1 do
-                        local line = Instance.new("Part")
-                        line.Name = "RixTrajectory"
-                        line.Anchored = true
-                        line.CanCollide = false
-                        line.Size = Vector3.new(0.2, 0.2, (points[i] - points[i + 1]).Magnitude)
-                        line.CFrame = CFrame.lookAt(points[i], points[i + 1]) * CFrame.new(0, 0, -line.Size.Z / 2)
-                        line.Color = Color3.fromRGB(255, 100, 100)
-                        line.Material = Enum.Material.Neon
-                        line.Transparency = 0.3
-                        line.Parent = Workspace
-                        table.insert(TrajectoryLines, line)
-                    end
-                end)
+                for i = 1, #points - 1 do
+                    local line = Instance.new("Part")
+                    line.Name = "RixTrajectory"
+                    line.Anchored = true
+                    line.CanCollide = false
+                    line.Size = Vector3.new(0.3, 0.3, (points[i] - points[i + 1]).Magnitude)
+                    line.CFrame = CFrame.lookAt(points[i], points[i + 1]) * CFrame.new(0, 0, -line.Size.Z / 2)
+                    line.Color = Color3.fromRGB(255, 100, 100)
+                    line.Material = Enum.Material.Neon
+                    line.Transparency = 0.3
+                    line.Parent = Workspace
+                    table.insert(TrajectoryLines, line)
+                end
             end)
             Notify("Ball Trajectory", "On")
         else
@@ -1036,26 +1043,22 @@ TVisuals:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         if v then
-            pcall(function()
-                for _, part in ipairs(Workspace:GetDescendants()) do
-                    if part:IsA("BasePart") and not part:IsDescendantOf(LP.Character) and part.Name ~= "RixPlatform" and part.Name ~= "RixTrajectory" then
-                        if OriginalParts[part] == nil then
-                            OriginalParts[part] = part.Transparency
-                        end
-                        part.Transparency = 0.4
+            for _, part in ipairs(Workspace:GetDescendants()) do
+                if part:IsA("BasePart") and not part:IsDescendantOf(LP.Character) and part.Name ~= "RixPlatform" and part.Name ~= "RixTrajectory" then
+                    if OriginalParts[part] == nil then
+                        OriginalParts[part] = part.Transparency
                     end
+                    part.Transparency = 0.4
                 end
-            end)
+            end
             Notify("Xray", "On")
         else
-            pcall(function()
-                for part, trans in pairs(OriginalParts) do
-                    if part and part.Parent then
-                        part.Transparency = trans
-                    end
+            for part, trans in pairs(OriginalParts) do
+                if part and part.Parent then
+                    part.Transparency = trans
                 end
-                OriginalParts = {}
-            end)
+            end
+            OriginalParts = {}
             Notify("Xray", "Off")
         end
     end
@@ -1067,19 +1070,17 @@ TVisuals:CreateToggle({
     Name = "Fullbright",
     CurrentValue = false,
     Callback = function(v)
-        pcall(function()
-            if v then
-                Lighting.Ambient = Color3.fromRGB(200, 200, 200)
-                Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
-                Lighting.GlobalShadows = false
-                Notify("Fullbright", "On")
-            else
-                Lighting.Ambient = Color3.fromRGB(128, 128, 128)
-                Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-                Lighting.GlobalShadows = true
-                Notify("Fullbright", "Off")
-            end
-        end)
+        if v then
+            Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+            Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
+            Lighting.GlobalShadows = false
+            Notify("Fullbright", "On")
+        else
+            Lighting.Ambient = Color3.fromRGB(128, 128, 128)
+            Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+            Lighting.GlobalShadows = true
+            Notify("Fullbright", "Off")
+        end
     end
 })
 
@@ -1105,22 +1106,20 @@ TProtection:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         if v then
-            pcall(function()
-                if getrawmetatable and hookfunction then
-                    local mt = getrawmetatable(game)
-                    local oldNamecall = mt.__namecall
-                    setreadonly(mt, false)
-                    mt.__namecall = newcclosure(function(self, ...)
-                        local method = getnamecallmethod()
-                        if method == "Kick" and self == LP then
-                            Notify("Anti Kick", "Blocked for " .. LP.Name)
-                            return nil
-                        end
-                        return oldNamecall(self, ...)
-                    end)
-                    setreadonly(mt, true)
-                end
-            end)
+            if getrawmetatable and hookfunction then
+                local mt = getrawmetatable(game)
+                local oldNamecall = mt.__namecall
+                setreadonly(mt, false)
+                mt.__namecall = newcclosure(function(self, ...)
+                    local method = getnamecallmethod()
+                    if method == "Kick" and self == LP then
+                        Notify("Anti Kick", "Blocked for " .. LP.Name)
+                        return nil
+                    end
+                    return oldNamecall(self, ...)
+                end)
+                setreadonly(mt, true)
+            end
             Notify("Anti Kick", "On")
         else
             Notify("Anti Kick", "Off")
@@ -1138,18 +1137,14 @@ TProtection:CreateToggle({
         if v then
             LastPos = getHRP() and getHRP().Position or Vector3.new(0, 0, 0)
             Connections.AntiTP = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    local hrp = getHRP()
-                    if not hrp then
-                        return
-                    end
-                    local dist = (hrp.Position - LastPos).Magnitude
-                    if dist > 150 then
-                        hrp.CFrame = CFrame.new(LastPos)
-                    else
-                        LastPos = hrp.Position
-                    end
-                end)
+                local hrp = getHRP()
+                if not hrp then return end
+                local dist = (hrp.Position - LastPos).Magnitude
+                if dist > 150 then
+                    hrp.CFrame = CFrame.new(LastPos)
+                else
+                    LastPos = hrp.Position
+                end
             end)
             Notify("Anti TP", "On")
         else
@@ -1167,10 +1162,8 @@ TProtection:CreateToggle({
         disconnect("AntiAFK")
         if v then
             Connections.AntiAFK = RunService.Heartbeat:Connect(function()
-                pcall(function()
-                    VirtualUser:CaptureController()
-                    VirtualUser:ClickButton2(Vector2.new())
-                end)
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new())
             end)
             Notify("Anti AFK", "On")
         else
@@ -1182,16 +1175,14 @@ TProtection:CreateToggle({
 TProtection:CreateDivider()
 
 TProtection:CreateButton({
-    Name = "Protect Player",
+    Name = "Protect All Players",
     Callback = function()
-        pcall(function()
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LP then
-                    ProtectedPlayers[player.Name] = true
-                end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LP then
+                ProtectedPlayers[player.Name] = true
             end
-            Notify("Player Protect", "All players protected from kick")
-        end)
+        end
+        Notify("Player Protect", "All players protected from kick")
     end
 })
 
@@ -1210,6 +1201,7 @@ TAbout:CreateLabel({ Text = "Ball Hitbox + ESP", Style = 1 })
 TAbout:CreateLabel({ Text = "Ball Trajectory Predict", Style = 1 })
 TAbout:CreateLabel({ Text = "Anti Stun + Anti Ragdoll", Style = 1 })
 TAbout:CreateLabel({ Text = "Player Protection", Style = 1 })
+TAbout:CreateLabel({ Text = "Optimized - No Lag", Style = 1 })
 TAbout:CreateLabel({ Text = "PC and Mobile Support", Style = 1 })
 TAbout:CreateDivider()
 
@@ -1249,37 +1241,34 @@ TAbout:CreateButton({
         SafeDestroy(PlatformPart)
         PlatformPart = nil
         DestroyReachCircle()
-        pcall(function()
-            local hum = getHum()
-            if hum then
-                hum.WalkSpeed = OriginalWalkSpeed
-                hum.JumpHeight = OriginalJumpHeight
-            end
-        end)
+        local hum = getHum()
+        if hum then
+            hum.WalkSpeed = OriginalWalkSpeed
+            hum.JumpHeight = OriginalJumpHeight
+        end
         SafeDestroy(bodyVelocity)
         bodyVelocity = nil
         IsJumping = false
         AntiCheatEnabled = false
         ProtectedPlayers = {}
+        FrameCounter = 0
         Notify("All Off", "Disabled")
     end
 })
 
 LP.CharacterAdded:Connect(function()
     task.wait(1)
-    pcall(function()
-        if LastPos then
-            LastPos = getHRP() and getHRP().Position or Vector3.new(0, 0, 0)
-        end
-        local hum = getHum()
-        if hum then
-            hum.WalkSpeed = OriginalWalkSpeed
-            hum.JumpHeight = OriginalJumpHeight
-        end
-        if AntiCheatEnabled then
-            task.delay(2, SetupAntiCheatBypass)
-        end
-    end)
+    local hum = getHum()
+    if hum then
+        hum.WalkSpeed = OriginalWalkSpeed
+        hum.JumpHeight = OriginalJumpHeight
+    end
+    if LastPos then
+        LastPos = getHRP() and getHRP().Position or Vector3.new(0, 0, 0)
+    end
+    if AntiCheatEnabled then
+        task.delay(2, SetupAntiCheatBypass)
+    end
 end)
 
 Players.PlayerAdded:Connect(function(player)
@@ -1288,5 +1277,5 @@ Players.PlayerAdded:Connect(function(player)
     end
 end)
 
-Notify("Rix Hub", "v1.1 Loaded - Volleyball Legends")
-print("RixHub v1.1 Ready - Volleyball Legends Edition")
+Notify("Rix Hub", "v1.1 Loaded - Volleyball Legends - Optimized")
+print("RixHub v1.1 Ready - Volleyball Legends Edition - No Lag")
