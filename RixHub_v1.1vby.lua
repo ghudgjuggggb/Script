@@ -1,11 +1,12 @@
-local lunaUrl = "https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua"
-local lunaLoaded, lunaResult = pcall(function()
-    return loadstring(game:HttpGet(lunaUrl, true))()
+local success, Luna = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua", true))()
 end)
-if not lunaLoaded or not lunaResult then
-    error("[RixHub] Luna failed to load. Check your executor or internet connection.")
+
+if not success or not Luna then
+    warn("[Rix Hub] Failed to load Luna UI library. Script cannot continue.")
+    warn("[Rix Hub] Error: " .. tostring(Luna))
+    return
 end
-local Luna = lunaResult
 
 local Window = Luna:CreateWindow({
     Name = "Rix Hub",
@@ -249,9 +250,9 @@ end
 local function removeLine(player)
     local data = lines[player]
     if data then
-        if data.beam then data.beam:Destroy() end
-        if data.target and data.target.Parent then data.target:Destroy() end
-        if data.attachment and data.attachment.Parent then data.attachment:Destroy() end
+        if data.beam then pcall(function() data.beam:Destroy() end) end
+        if data.target and data.target.Parent then pcall(function() data.target:Destroy() end) end
+        if data.attachment and data.attachment.Parent then pcall(function() data.attachment:Destroy() end) end
         lines[player] = nil
     end
 end
@@ -269,33 +270,42 @@ local function updateLine(player, index)
     local head = char.Head
     local rootPart = char.HumanoidRootPart
     if not lines[player] then
-        local attachment = Instance.new("Attachment", head)
-        local target = Instance.new("Part")
-        target.Anchored = true; target.CanCollide = false; target.Transparency = 1
-        target.Size = Vector3.new(0.1,0.1,0.1); target.Parent = Workspace
-        local targetAttachment = Instance.new("Attachment", target)
-        local beam = Instance.new("Beam")
-        beam.Attachment0 = attachment; beam.Attachment1 = targetAttachment
-        beam.Width0 = 0.25; beam.Width1 = 0.25; beam.FaceCamera = true
-        beam.LightEmission = 1; beam.Transparency = NumberSequence.new(0.3)
-        beam.Color = ColorSequence.new(lineColors[((index-1) % #lineColors) + 1])
-        beam.Parent = head
-        lines[player] = { beam=beam, target=target, attachment=attachment }
+        local success = pcall(function()
+            local attachment = Instance.new("Attachment", head)
+            local target = Instance.new("Part")
+            target.Anchored = true; target.CanCollide = false; target.Transparency = 1
+            target.Size = Vector3.new(0.1,0.1,0.1); target.Parent = Workspace
+            local targetAttachment = Instance.new("Attachment", target)
+            local beam = Instance.new("Beam")
+            beam.Attachment0 = attachment; beam.Attachment1 = targetAttachment
+            beam.Width0 = 0.25; beam.Width1 = 0.25; beam.FaceCamera = true
+            beam.LightEmission = 1; beam.Transparency = NumberSequence.new(0.3)
+            beam.Color = ColorSequence.new(lineColors[((index-1) % #lineColors) + 1])
+            beam.Parent = head
+            lines[player] = { beam=beam, target=target, attachment=attachment }
+        end)
+        if not success then return end
     end
-    lines[player].target.Position = head.Position + rootPart.CFrame.LookVector * lineDistance
+    pcall(function()
+        if lines[player] and lines[player].target then
+            lines[player].target.Position = head.Position + rootPart.CFrame.LookVector * lineDistance
+        end
+    end)
 end
 
 local function applyJumpESP(player)
     if not player.Character or espHighlights[player] then return end
-    local hl = Instance.new("Highlight")
-    hl.Name = "JumpESP"
-    hl.Adornee = player.Character
-    hl.FillTransparency = 1
-    hl.OutlineTransparency = 0
-    hl.OutlineColor = Color3.fromRGB(255,255,0)
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = player.Character
-    espHighlights[player] = hl
+    pcall(function()
+        local hl = Instance.new("Highlight")
+        hl.Name = "JumpESP"
+        hl.Adornee = player.Character
+        hl.FillTransparency = 1
+        hl.OutlineTransparency = 0
+        hl.OutlineColor = Color3.fromRGB(255,255,0)
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent = player.Character
+        espHighlights[player] = hl
+    end)
 end
 
 local function removeJumpESP(player)
@@ -345,15 +355,68 @@ local function pressClick()
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
 end
 
+
+-- Helper function to find GameService dynamically
+local function getGameServicePath()
+    local packages = ReplicatedStorage:FindFirstChild("Packages")
+    if not packages then return nil end
+
+    local knit = packages:FindFirstChild("Knit") or packages:FindFirstChild("knit")
+    if knit then
+        local services = knit:FindFirstChild("Services")
+        if services then
+            return services:FindFirstChild("GameService")
+        end
+    end
+
+    -- Try _Index path
+    for _, child in ipairs(packages:GetChildren()) do
+        if child.Name:find("knit") or child.Name:find("Knit") then
+            local services = child:FindFirstChild("Services") or child:FindFirstChild("knit") and child.knit:FindFirstChild("Services")
+            if services then
+                return services:FindFirstChild("GameService")
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Helper function to find StylesService dynamically
+local function getStylesServicePath()
+    local packages = ReplicatedStorage:FindFirstChild("Packages")
+    if not packages then return nil end
+
+    local knit = packages:FindFirstChild("Knit") or packages:FindFirstChild("knit")
+    if knit then
+        local services = knit:FindFirstChild("Services")
+        if services then
+            return services:FindFirstChild("StylesService")
+        end
+    end
+
+    -- Try _Index path
+    for _, child in ipairs(packages:GetChildren()) do
+        if child.Name:find("knit") or child.Name:find("Knit") then
+            local services = child:FindFirstChild("Services") or child:FindFirstChild("knit") and child.knit:FindFirstChild("Services")
+            if services then
+                return services:FindFirstChild("StylesService")
+            end
+        end
+    end
+
+    return nil
+end
+
 local function getHitbox(name)
     return pcall(function()
-        return ReplicatedStorage.Assets.Hitboxes:FindFirstChild(name)
+        return ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("Hitboxes") and ReplicatedStorage.Assets.Hitboxes:FindFirstChild(name)
     end)
 end
 
 local function setHitboxSize(name, value)
     pcall(function()
-        local hitbox = ReplicatedStorage.Assets.Hitboxes:FindFirstChild(name)
+        local hitbox = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("Hitboxes") and ReplicatedStorage.Assets.Hitboxes:FindFirstChild(name)
         if hitbox then
             local part = hitbox:FindFirstChild("Part")
             if part and part:IsA("BasePart") then
@@ -364,8 +427,10 @@ local function setHitboxSize(name, value)
 end
 
 local function setupCharacterAir(character)
-    local hum = character:WaitForChild("Humanoid")
-    local hrp = character:WaitForChild("HumanoidRootPart")
+    local hum = character:WaitForChild("Humanoid", 5)
+    local hrp = character:WaitForChild("HumanoidRootPart", 5)
+    if not hum or not hrp then return end
+
     airMovementSpeed = hum.WalkSpeed
 
     hum:GetPropertyChangedSignal("Jump"):Connect(function()
@@ -395,22 +460,24 @@ local function setupCharacterAir(character)
                 airBodyVelocity.Parent = hrp
             end
         elseif newState == Enum.HumanoidStateType.Landed then
-            if airBodyVelocity then
-                airBodyVelocity:Destroy()
-                airBodyVelocity = nil
-            end
+            if airBodyVelocity then airBodyVelocity:Destroy() airBodyVelocity = nil end
             hum.AutoRotate = true
         end
     end)
 end
 
-if LP.Character then setupCharacterAir(LP.Character) end
-LP.CharacterAdded:Connect(setupCharacterAir)
+if LP.Character then 
+    pcall(function() setupCharacterAir(LP.Character) end) 
+end
 
 RunService.RenderStepped:Connect(function()
     if airMovement and airBodyVelocity and LP.Character then
         local hum = LP.Character:FindFirstChild("Humanoid")
-        if hum then airBodyVelocity.Velocity = hum.MoveDirection * airMovementSpeed end
+        if hum and airBodyVelocity then 
+            pcall(function()
+                airBodyVelocity.Velocity = hum.MoveDirection * airMovementSpeed 
+            end)
+        end
     end
     if linesEnabled then
         local idx = 0
@@ -540,10 +607,7 @@ TMovement:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         airMovement = v
-        if not v and airBodyVelocity then
-        airBodyVelocity:Destroy()
-        airBodyVelocity = nil
-    end
+        if not v and airBodyVelocity then airBodyVelocity:Destroy() airBodyVelocity = nil end
         Notify("Air Movement", v and "On" or "Off")
     end
 })
@@ -644,7 +708,11 @@ TMovement:CreateToggle({
         if v then
             Connections.Spin = RunService.Heartbeat:Connect(function()
                 local hrp = getHRP()
-                if hrp then hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinSpd), 0) end
+                if hrp then 
+                    pcall(function()
+                        hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(SpinSpd), 0)
+                    end)
+                end
             end)
             Notify("Spin Mod", "Speed " .. SpinSpd)
         else
@@ -737,24 +805,16 @@ TAutoFarm:CreateToggle({
                         local hum = getHum()
                         if not hrp or not hum then return end
                         local ball = getBallModel()
-                        if ball then
+                        if ball and ball:IsA("BasePart") then
+                            -- Move towards ball
                             hum:MoveTo(ball.Position)
+
                             local dist = (ball.Position - hrp.Position).Magnitude
                             if dist <= 15 then
-                                local ok, posFolder = pcall(function()
-                                    return Workspace.Map.BallNoCollide.Positions["2"]
-                                end)
-                                if ok and posFolder then
-                                    local parts = {}
-                                    for _, p in ipairs(posFolder:GetChildren()) do
-                                        if p:IsA("BasePart") then table.insert(parts, p) end
-                                    end
-                                    if #parts > 0 then
-                                        local target = parts[math.random(1, #parts)]
-                                        local look = (target.Position - hrp.Position).Unit
-                                        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + look)
-                                    end
-                                end
+                                -- Look at ball
+                                local look = (ball.Position - hrp.Position).Unit
+                                hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + look)
+
                                 if ball.Position.Y > hrp.Position.Y + 5 then
                                     pressSpace()
                                     pressClick()
@@ -782,11 +842,24 @@ TAutoFarm:CreateToggle({
                 task.wait(10)
                 while autoJoin do
                     pcall(function()
-                        local gui = LP.PlayerGui.Interface.TeamSelection
-                        local gameGui = LP.PlayerGui.Interface.Game
+                        local playerGui = LP:FindFirstChild("PlayerGui")
+                        if not playerGui then return end
+
+                        local interface = playerGui:FindFirstChild("Interface")
+                        if not interface then return end
+
+                        local teamSelection = interface:FindFirstChild("TeamSelection")
+                        if not teamSelection then return end
+
+                        local gameGui = interface:FindFirstChild("Game")
+                        if not gameGui then return end
+
                         if not gameGui.Visible then
+                            local team2 = teamSelection:FindFirstChild("2")
+                            if not team2 then return end
+
                             local randomNum = math.random(1, 6)
-                            local btn = gui["2"][tostring(randomNum)]
+                            local btn = team2:FindFirstChild(tostring(randomNum))
                             if btn and btn:IsA("ImageButton") then
                                 local pos = btn.AbsolutePosition + btn.AbsoluteSize / 2
                                 VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
@@ -817,7 +890,13 @@ TAutoFarm:CreateButton({
     Name = "Break The Match",
     Callback = function()
         pcall(function()
-            ReplicatedStorage.Packages._Index["sleitnick_knit@1.7.0"].knit.Services.GameService.RF.Serve:InvokeServer(nil, 0.95)
+            local gameService = getGameServicePath()
+            if gameService then
+                local serveRF = gameService:FindFirstChild("RF") and gameService.RF:FindFirstChild("Serve")
+                if serveRF then
+                    serveRF:InvokeServer(nil, 0.95)
+                end
+            end
         end)
         Notify("Break Match", "Sent")
     end
@@ -836,12 +915,23 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         pcall(function()
             local hrp = getHRP()
             if not hrp then return end
+
+            local gameService = getGameServicePath()
+            if not gameService then
+                Notify("Powerful Serve", "GameService not found")
+                return
+            end
+
+            local serveRF = gameService:FindFirstChild("RF") and gameService.RF:FindFirstChild("Serve")
+            if not serveRF then
+                Notify("Powerful Serve", "Serve RF not found")
+                return
+            end
+
             local direction = hrp.CFrame.LookVector
             local distance = 50
             local targetPos = hrp.Position + direction * distance
-            ReplicatedStorage.Packages._Index["sleitnick_knit@1.7.0"].knit.Services.GameService.RF.Serve:InvokeServer(
-                CFrame.new(targetPos), 0.95
-            )
+            serveRF:InvokeServer(CFrame.new(targetPos), 0.95)
         end)
     end
 end)
@@ -863,7 +953,26 @@ TAutoSpin:CreateToggle({
             coroutine.wrap(function()
                 while autoSpin do
                     pcall(function()
-                        local current = LP.PlayerGui.Interface.Lobby.Styles.TopPanel.DisplayName.Text
+                        -- Safely navigate the UI hierarchy
+                        local playerGui = LP:FindFirstChild("PlayerGui")
+                        if not playerGui then return end
+
+                        local interface = playerGui:FindFirstChild("Interface")
+                        if not interface then return end
+
+                        local lobby = interface:FindFirstChild("Lobby")
+                        if not lobby then return end
+
+                        local styles = lobby:FindFirstChild("Styles")
+                        if not styles then return end
+
+                        local topPanel = styles:FindFirstChild("TopPanel")
+                        if not topPanel then return end
+
+                        local displayName = topPanel:FindFirstChild("DisplayName")
+                        if not displayName then return end
+
+                        local current = displayName.Text
                         if table.find(desiredStyles, current) then
                             autoSpin = false
                             Luna:Notification({
@@ -873,7 +982,14 @@ TAutoSpin:CreateToggle({
                                 Content = "Got: " .. current
                             })
                         else
-                            ReplicatedStorage.Packages._Index["sleitnick_knit@1.7.0"].knit.Services.StylesService.RF.Roll:InvokeServer(false)
+                            -- Use dynamic path finding for StylesService
+                            local stylesService = getStylesServicePath()
+                            if stylesService then
+                                local rollRF = stylesService:FindFirstChild("RF") and stylesService.RF:FindFirstChild("Roll")
+                                if rollRF then
+                                    rollRF:InvokeServer(false)
+                                end
+                            end
                         end
                     end)
                     task.wait(0.5)
@@ -1317,6 +1433,10 @@ TProtection:CreateToggle({
     Callback = function(v)
         AntiCheatEnabled = v
         if v then
+            if not getrawmetatable then
+                Notify("AC Bypass", "Failed - Requires exploit executor")
+                return
+            end
             SetupAntiCheatBypass()
             Notify("AC Bypass", "Multi-Stage Active")
         else
@@ -1330,6 +1450,10 @@ TProtection:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         if v then
+            if not getrawmetatable then
+                Notify("Anti Kick", "Failed - Requires exploit executor")
+                return
+            end
             pcall(function()
                 local mt = getrawmetatable(game)
                 local old = mt.__namecall
@@ -1404,11 +1528,11 @@ TAbout:CreateLabel({ Text = "Rix Hub", Style = 1 })
 TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "Volleyball Legends", Style = 2 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "Version: 2.0 Full Merge", Style = 1 })
+TAbout:CreateLabel({ Text = "Version: 2.1 Fixed", Style = 1 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "Player: " .. LP.Name, Style = 1 })
+TAbout:CreateLabel({ Text = "Player: " .. (LP and LP.Name or "Unknown"), Style = 1 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "Merged: RixHub + ZeckHub + Sterling", Style = 1 })
+TAbout:CreateLabel({ Text = "Fixed: Error handling + Dynamic paths", Style = 1 })
 TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "60+ Features", Style = 1 })
 TAbout:CreateDivider()
@@ -1430,10 +1554,12 @@ TAbout:CreateButton({
         OriginalParts = {}
         for ball, size in pairs(OriginalBallSizes) do
             if ball and ball.Parent then
-                ball.Size = size
-                ball.Transparency = 0
-                ball.Material = Enum.Material.Plastic
-                ball.Color = Color3.fromRGB(255,255,255)
+                pcall(function()
+                    ball.Size = size
+                    ball.Transparency = 0
+                    ball.Material = Enum.Material.Plastic
+                    ball.Color = Color3.fromRGB(255,255,255)
+                end)
             end
         end
         OriginalBallSizes = {}
@@ -1466,16 +1592,88 @@ TAbout:CreateButton({
     end
 })
 
-LP.CharacterAdded:Connect(function()
+LP.CharacterAdded:Connect(function(char)
     task.wait(1)
+    pcall(function() setupCharacterAir(char) end)
+
     local hum = getHum()
     if hum then
         hum.WalkSpeed = OriginalWalkSpeed
         hum.JumpHeight = OriginalJumpHeight
     end
     if LastPos then LastPos = getHRP() and getHRP().Position or Vector3.new(0,0,0) end
-    if AntiCheatEnabled then task.delay(2, SetupAntiCheatBypass) end
+    if AntiCheatEnabled then 
+        task.delay(2, function()
+            pcall(SetupAntiCheatBypass)
+        end) 
+    end
 end)
 
-Notify("Rix Hub", "v2.0 Full Merge Loaded!")
-print("✅ RixHub v2.0 - Full Merge (RixHub + ZeckHub + Sterling) - Ready!")
+Notify("Rix Hub", "v2.1 Fixed Loaded!")
+print("✅ RixHub v2.1 - Fixed (Error handling + Dynamic paths) - Ready!")
+TAbout:CreateDivider()
+TAbout:CreateLabel({ Text = "Merged: RixHub + ZeckHub + Sterling + V4.2", Style = 1 })
+TAbout:CreateDivider()
+TAbout:CreateLabel({ Text = "80+ Features", Style = 1 })
+TAbout:CreateDivider()
+TAbout:CreateButton({
+    Name = "Disable All",
+    Callback = function()
+        for key, _ in pairs(Connections) do disconnect(key) end
+        for _, bb in pairs(ESPObjects) do SafeDestroy(bb) end
+        ESPObjects = {}
+        for _, bb in pairs(BallESPObjects) do SafeDestroy(bb) end
+        BallESPObjects = {}
+        for _, line in ipairs(TrajectoryLines) do SafeDestroy(line) end
+        TrajectoryLines = {}
+        for p, _ in pairs(lines) do removeLine(p) end
+        for p, _ in pairs(espHighlights) do removeJumpESP(p) end
+        for part, trans in pairs(OriginalParts) do
+            if part and part.Parent then
+                pcall(function() part.Transparency = trans end)
+            end
+        end
+        OriginalParts = {}
+        for ball, size in pairs(OriginalBallSizes) do
+            if ball and ball.Parent then
+                pcall(function()
+                    ball.Size = size
+                    ball.Transparency = 0
+                    ball.Material = Enum.Material.Plastic
+                    ball.Color = Color3.fromRGB(255,255,255)
+                end)
+            end
+        end
+        OriginalBallSizes = {}
+        SafeDestroy(PlatformPart)
+        PlatformPart = nil
+        SafeDestroy(bodyVelocity)
+        bodyVelocity = nil
+        if predictionBubble then predictionBubble:Destroy() predictionBubble = nil end
+        DestroyReachCircle()
+        local hum = getHum()
+        if hum then
+            hum.WalkSpeed = OriginalWalkSpeed
+            hum.JumpHeight = OriginalJumpHeight
+        end
+        Lighting.Brightness = defaultBrightness
+        Lighting.Ambient = defaultAmbient
+        Lighting.OutdoorAmbient = defaultOutdoorAmbient
+        Lighting.FogEnd = defaultFogEnd
+        bloomEffect.Intensity = 0
+        autoFarm = false
+        autoJoin = false
+        autoSpin = false
+        linesEnabled = false
+        espJumpEnabled = false
+        powerfulServe = false
+        IsJumping = false
+        AntiCheatEnabled = false
+        ProtectedPlayers = {}
+        BlockedRemotes = {}
+        Notify("All Off", "Disabled")
+    end
+})
+
+Notify("Rix Hub", "v2.1 Mega Merge Loaded!")
+print("✅ RixHub v2.1 - Mega Merge (RixHub + ZeckHub + Sterling + V4.2) - Ready!")
