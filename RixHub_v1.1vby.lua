@@ -889,16 +889,23 @@ TAutoFarm:CreateToggle({
 TAutoFarm:CreateButton({
     Name = "Break The Match",
     Callback = function()
-        pcall(function()
+        local success, err = pcall(function()
             local gameService = getGameServicePath()
-            if gameService then
-                local serveRF = gameService:FindFirstChild("RF") and gameService.RF:FindFirstChild("Serve")
-                if serveRF then
-                    serveRF:InvokeServer(nil, 0.95)
-                end
+            if not gameService then
+                Notify("Break Match", "ERROR: GameService not found!")
+                return
             end
+            local serveRF = gameService:FindFirstChild("RF") and gameService.RF:FindFirstChild("Serve")
+            if not serveRF then
+                Notify("Break Match", "ERROR: Serve RF not found!")
+                return
+            end
+            serveRF:InvokeServer(nil, 0.95)
+            Notify("Break Match", "Sent successfully!")
         end)
-        Notify("Break Match", "Sent")
+        if not success then
+            Notify("Break Match", "Error: " .. tostring(err))
+        end
     end
 })
 TAutoFarm:CreateDivider()
@@ -1612,7 +1619,7 @@ end)
 Notify("Rix Hub", "v2.1 Fixed Loaded!")
 print("✅ RixHub v2.1 - Fixed (Error handling + Dynamic paths) - Ready!")
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text = "Merged: RixHub + ZeckHub + Sterling + V4.2", Style = 1 })
+TAbout:CreateLabel({ Text = "Features: 80+ | Instant Stop Spin", Style = 1 })
 TAbout:CreateDivider()
 TAbout:CreateLabel({ Text = "80+ Features", Style = 1 })
 TAbout:CreateDivider()
@@ -1675,5 +1682,5 @@ TAbout:CreateButton({
     end
 })
 
-Notify("Rix Hub", "v2.1 Mega Merge Loaded!")
-print("✅ RixHub v2.1 - Mega Merge (RixHub + ZeckHub + Sterling + V4.2) - Ready!")
+Notify("Rix Hub", "v1.1vby Loaded! | Instant Stop Spin")
+print("✅ RixHub v1.1vby - Ready! | Auto Spin: Instant Stop")
