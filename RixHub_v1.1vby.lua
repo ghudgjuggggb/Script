@@ -1,4 +1,11 @@
-local Luna = loadstring(game:HttpGet("https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua", true))()
+local lunaUrl = "https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua"
+local lunaLoaded, lunaResult = pcall(function()
+    return loadstring(game:HttpGet(lunaUrl, true))()
+end)
+if not lunaLoaded or not lunaResult then
+    error("[RixHub] Luna failed to load. Check your executor or internet connection.")
+end
+local Luna = lunaResult
 
 local Window = Luna:CreateWindow({
     Name = "Rix Hub",
@@ -388,7 +395,10 @@ local function setupCharacterAir(character)
                 airBodyVelocity.Parent = hrp
             end
         elseif newState == Enum.HumanoidStateType.Landed then
-            if airBodyVelocity then airBodyVelocity:Destroy() airBodyVelocity = nil end
+            if airBodyVelocity then
+                airBodyVelocity:Destroy()
+                airBodyVelocity = nil
+            end
             hum.AutoRotate = true
         end
     end)
@@ -530,7 +540,10 @@ TMovement:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         airMovement = v
-        if not v and airBodyVelocity then airBodyVelocity:Destroy() airBodyVelocity = nil end
+        if not v and airBodyVelocity then
+        airBodyVelocity:Destroy()
+        airBodyVelocity = nil
+    end
         Notify("Air Movement", v and "On" or "Off")
     end
 })
