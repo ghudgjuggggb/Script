@@ -760,27 +760,93 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end)
 
-local enablejoin = false
+local enablejoin     = false
+local joinTeam       = 1     -- 1 или 2
+local joinSlot       = 0     -- 0 = любой свободный
+
+-- Получаем RF для вступления в команду
+local function getRequestJoinRF()
+    local ok, rf = pcall(function()
+        return ReplicatedStorage
+            :WaitForChild("Packages",    10)
+            :WaitForChild("_Index",      10)
+            :WaitForChild("sleitnick_knit@1.7.0", 10)
+            :WaitForChild("knit",        10)
+            :WaitForChild("Services",    10)
+            :WaitForChild("GameService", 10)
+            :WaitForChild("RF",          10)
+            :WaitForChild("RequestJoin", 10)
+    end)
+    return (ok and rf) and rf or nil
+end
+
+-- Попытка занять конкретный слот
+local function tryJoinSlot(rf, team, slot)
+    local ok, result = pcall(function()
+        return rf:InvokeServer(team, slot)
+    end)
+    return ok and result
+end
+
+-- Главная функция Auto Join
 local function teamSelection()
     if not enablejoin then return end
-    task.wait(10)
+
     task.spawn(function()
-        pcall(function()
-            local teamGui = LP.PlayerGui.Interface.TeamSelection
-            local gameGui = LP.PlayerGui.Interface.Game
-            if not gameGui.Visible then teamGui.Visible = true end
-            while not gameGui.Visible and enablejoin do
-                local randomNum = math.random(1,6)
-                local btn = teamGui["2"][tostring(randomNum)]
-                if btn and btn:IsA("ImageButton") then
-                    local pos = btn.AbsolutePosition + btn.AbsoluteSize/2
-                    VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
-                    VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
-                end
-                task.wait(math.random(5,15)/10)
+        local rf = getRequestJoinRF()
+        if not rf then
+            Notify("Auto Join", "❌ GameService/RequestJoin not found!")
+            enablejoin = false
+            return
+        end
+
+        -- Ждём пока появится экран выбора команды
+        local waited = 0
+        while enablejoin do
+            task.wait(0.5)
+            waited = waited + 0.5
+
+            local inGame = pcall(function()
+                return LP.PlayerGui.Interface.Game.Visible
+            end)
+
+            -- Уже в игре — не нужно вступать
+            local ok2, gameVisible = pcall(function()
+                return LP.PlayerGui.Interface.Game.Visible
+            end)
+            if ok2 and gameVisible then
+                Notify("Auto Join", "Already in game!")
+                enablejoin = false
+                return
             end
-            if gameGui.Visible then teamGui.Visible = false end
-        end)
+
+            -- Пробуем занять слот
+            local slotToTry = joinSlot
+
+            if slotToTry == 0 then
+                -- Любой свободный: пробуем 1→6
+                for s = 1, 6 do
+                    if not enablejoin then break end
+                    local success = tryJoinSlot(rf, joinTeam, s)
+                    if success then
+                        Notify("Auto Join", "✅ Joined team " .. joinTeam .. " slot " .. s)
+                        enablejoin = false
+                        return
+                    end
+                    task.wait(0.1)
+                end
+            else
+                -- Конкретный слот
+                local success = tryJoinSlot(rf, joinTeam, slotToTry)
+                if success then
+                    Notify("Auto Join", "✅ Joined team " .. joinTeam .. " slot " .. slotToTry)
+                    enablejoin = false
+                    return
+                end
+            end
+
+            task.wait(0.3)
+        end
     end)
 end
 
@@ -1353,13 +1419,68 @@ TAutoFarm:CreateToggle({
 })
 
 TAutoFarm:CreateDivider()
+TAutoFarm:CreateSection("Auto Join Match")
+
+TAutoFarm:CreateDropdown({
+    Name = "Team",
+    Options = {"1 (Red)", "2 (Blue)"},
+    CurrentOption = {"1 (Red)"},
+    MultipleOptions = false,
+    Callback = function(opt)
+        local v = type(opt) == "table" and opt[1] or opt
+        joinTeam = v:find("2") and 2 or 1
+        Notify("Team", "Selected: Team " .. joinTeam)
+    end
+})
+
+TAutoFarm:CreateDropdown({
+    Name = "Slot (0 = any free)",
+    Options = {"0","1","2","3","4","5","6"},
+    CurrentOption = {"0"},
+    MultipleOptions = false,
+    Callback = function(opt)
+        local v = type(opt) == "table" and opt[1] or opt
+        joinSlot = tonumber(v) or 0
+        Notify("Slot", joinSlot == 0 and "Any free slot" or "Slot " .. joinSlot)
+    end
+})
 
 TAutoFarm:CreateToggle({
-    Name="Auto Join Match", CurrentValue=false,
-    Callback=function(v)
-        enablejoin=v; autoJoin=v
-        if v then teamSelection() Notify("Auto Join","ON — waits 10s") end
-        if not v then Notify("Auto Join","OFF") end
+    Name = "Auto Join Match",
+    CurrentValue = false,
+    Callback = function(v)
+        enablejoin = v
+        autoJoin   = v
+        if v then
+            teamSelection()
+            Notify("Auto Join", "ON → team " .. joinTeam .. " slot " .. (joinSlot == 0 and "any" or joinSlot))
+        else
+            Notify("Auto Join", "OFF")
+        end
+    end
+})
+
+TAutoFarm:CreateButton({
+    Name = "Join Now (manual)",
+    Callback = function()
+        local rf = getRequestJoinRF()
+        if not rf then
+            Notify("Join", "❌ RF not found")
+            return
+        end
+        if joinSlot == 0 then
+            for s = 1, 6 do
+                local ok = pcall(function() rf:InvokeServer(joinTeam, s) end)
+                if ok then
+                    Notify("Join", "✅ team " .. joinTeam .. " slot " .. s)
+                    break
+                end
+                task.wait(0.1)
+            end
+        else
+            pcall(function() rf:InvokeServer(joinTeam, joinSlot) end)
+            Notify("Join", "team " .. joinTeam .. " slot " .. joinSlot)
+        end
     end
 })
 
