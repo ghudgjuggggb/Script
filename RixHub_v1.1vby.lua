@@ -1240,6 +1240,9 @@ TMovement:CreateToggle({
 TMovement:CreateSlider({ Name="Platform Height", Range={3,20}, Increment=1, CurrentValue=8, Callback=function(v) PlatHeight=v end })
 
 -- AUTO FARM CONFIG
+-- ============================================================
+-- AUTO FARM CONFIG
+-- ============================================================
 local farmFlySpeed   = 60
 local farmHitDist    = 12
 local farmPredictMul = 0.35
@@ -1247,26 +1250,33 @@ local farmAutoJump   = true
 local farmAutoClick  = true
 local farmFlyBV      = nil
 
--- Предсказание позиции мяча
+-- Тип удара: "spike" | "bump" | "dive" | "set" | "auto"
+local farmHitMode    = "auto"
+
+-- Клавиши для каждого удара (настраивается)
+local farmKeySpike   = Enum.KeyCode.Q
+local farmKeyBump    = Enum.KeyCode.E
+local farmKeyDive    = Enum.KeyCode.R
+local farmKeySet     = Enum.KeyCode.F
+
 local function predictBallPos(ball, seconds)
-    local vel = ball.Velocity
+    local vel  = ball.Velocity
     local grav = Workspace.Gravity
     return ball.Position
         + vel * seconds
         + Vector3.new(0, -0.5 * grav * seconds * seconds, 0)
 end
 
--- Создать/удалить BodyVelocity для фарма
 local function farmFlyCreate()
     local hrp = getHRP()
     if not hrp then return end
     if farmFlyBV then pcall(function() farmFlyBV:Destroy() end) end
-    farmFlyBV = Instance.new("BodyVelocity")
+    farmFlyBV          = Instance.new("BodyVelocity")
     farmFlyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    farmFlyBV.Velocity  = Vector3.new(0, 0, 0)
-    farmFlyBV.P         = 5000
-    farmFlyBV.Name      = "FarmFlyBV"
-    farmFlyBV.Parent    = hrp
+    farmFlyBV.Velocity = Vector3.new(0, 0, 0)
+    farmFlyBV.P        = 5000
+    farmFlyBV.Name     = "FarmFlyBV"
+    farmFlyBV.Parent   = hrp
 end
 
 local function farmFlyDestroy()
@@ -1279,7 +1289,7 @@ end
 local function farmFlyTo(targetPos)
     local hrp = getHRP()
     if not hrp or not farmFlyBV then return end
-    local dir = (targetPos - hrp.Position)
+    local dir  = (targetPos - hrp.Position)
     local dist = dir.Magnitude
     if dist < 0.5 then
         farmFlyBV.Velocity = Vector3.new(0, 0, 0)
@@ -1287,14 +1297,77 @@ local function farmFlyTo(targetPos)
     end
     local speed = math.min(farmFlySpeed, dist * 6)
     farmFlyBV.Velocity = dir.Unit * speed
-    -- Поворот в сторону мяча
     local lookDir = Vector3.new(dir.X, 0, dir.Z)
     if lookDir.Magnitude > 0.1 then
         hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir.Unit)
     end
 end
 
-TAutoFarm:CreateSection("Auto Farm")
+-- Отправить нажатие клавиши удара
+local function pressHitKey(mode)
+    local key
+    if mode == "spike" then key = farmKeySpike
+    elseif mode == "bump" then key = farmKeyBump
+    elseif mode == "dive" then key = farmKeyDive
+    elseif mode == "set"  then key = farmKeySet
+    end
+    if key then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true,  key, false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, key, false, game)
+        end)
+    end
+end
+
+-- Определить лучший удар автоматически по позиции мяча
+local function getBestHitMode(ball, hrp)
+    if not ball or not hrp then return "bump" end
+    local ballY  = ball.Position.Y
+    local myY    = hrp.Position.Y
+    local diff   = ballY - myY
+    local speed  = ball.Velocity.Magnitude
+
+    if diff > 6 and speed > 10 then
+        return "spike"   -- мяч высоко и летит — спайк
+    elseif diff < -1 then
+        return "dive"    -- мяч ниже нас — дайв
+    elseif diff > 2 and speed < 10 then
+        return "set"     -- мяч немного выше и медленно — сет
+    else
+        return "bump"    -- всё остальное — бамп
+    end
+end
+
+-- Позиция для каждого типа удара
+local function getTargetOffset(mode)
+    if mode == "spike" then
+        return Vector3.new(0,  4, 0)   -- лететь выше мяча
+    elseif mode == "bump" then
+        return Vector3.new(0, -2, 0)   -- лететь ниже мяча
+    elseif mode == "dive" then
+        return Vector3.new(0,  0, 0)   -- прямо к мячу
+    elseif mode == "set" then
+        return Vector3.new(0,  1, 0)   -- чуть ниже мяча
+    end
+    return Vector3.new(0, 2, 0)
+end
+
+-- ============================================================
+-- AUTO FARM UI
+-- ============================================================
+TAutoFarm:CreateSection("Auto Farm Settings")
+
+TAutoFarm:CreateDropdown({
+    Name = "Hit Mode",
+    Options = {"auto","spike","bump","dive","set"},
+    CurrentOption = {"auto"},
+    MultipleOptions = false,
+    Callback = function(opt)
+        farmHitMode = type(opt)=="table" and opt[1] or opt
+        Notify("Farm Mode", farmHitMode)
+    end
+})
 
 TAutoFarm:CreateSlider({
     Name = "Farm Fly Speed",
@@ -1313,6 +1386,56 @@ TAutoFarm:CreateSlider({
     Range = {0, 1}, Increment = 0.05, CurrentValue = 0.35,
     Callback = function(v) farmPredictMul = v end
 })
+
+TAutoFarm:CreateDivider()
+TAutoFarm:CreateSection("Hit Keys")
+
+TAutoFarm:CreateDropdown({
+    Name = "Spike Key",
+    Options = {"Q","E","R","F","G","H","X","Z","V"},
+    CurrentOption = {"Q"},
+    MultipleOptions = false,
+    Callback = function(opt)
+        local k = type(opt)=="table" and opt[1] or opt
+        farmKeySpike = Enum.KeyCode[k] or Enum.KeyCode.Q
+    end
+})
+
+TAutoFarm:CreateDropdown({
+    Name = "Bump Key",
+    Options = {"E","Q","R","F","G","H","X","Z","V"},
+    CurrentOption = {"E"},
+    MultipleOptions = false,
+    Callback = function(opt)
+        local k = type(opt)=="table" and opt[1] or opt
+        farmKeyBump = Enum.KeyCode[k] or Enum.KeyCode.E
+    end
+})
+
+TAutoFarm:CreateDropdown({
+    Name = "Dive Key",
+    Options = {"R","Q","E","F","G","H","X","Z","V"},
+    CurrentOption = {"R"},
+    MultipleOptions = false,
+    Callback = function(opt)
+        local k = type(opt)=="table" and opt[1] or opt
+        farmKeyDive = Enum.KeyCode[k] or Enum.KeyCode.R
+    end
+})
+
+TAutoFarm:CreateDropdown({
+    Name = "Set Key",
+    Options = {"F","Q","E","R","G","H","X","Z","V"},
+    CurrentOption = {"F"},
+    MultipleOptions = false,
+    Callback = function(opt)
+        local k = type(opt)=="table" and opt[1] or opt
+        farmKeySet = Enum.KeyCode[k] or Enum.KeyCode.F
+    end
+})
+
+TAutoFarm:CreateDivider()
+TAutoFarm:CreateSection("Auto Farm")
 
 TAutoFarm:CreateToggle({
     Name = "Auto Jump on hit",
@@ -1336,38 +1459,38 @@ TAutoFarm:CreateToggle({
             farmFlyCreate()
 
             task.spawn(function()
-                local lastHitTime  = 0
-                local hitCooldown  = 0.6
+                local lastHitTime = 0
+                local hitCooldown = 0.55
 
                 while autoFarm do
                     task.wait(0.05)
                     pcall(function()
-                        local hrp  = getHRP()
-                        local hum  = getHum()
+                        local hrp = getHRP()
+                        local hum = getHum()
                         if not hrp or not hum then return end
 
-                        -- Найти мяч
                         local ball = getBallModel()
                         if not ball then
-                            -- Мяч не найден — парить на месте
-                            if farmFlyBV then farmFlyBV.Velocity = Vector3.new(0,0,0) end
+                            if farmFlyBV then farmFlyBV.Velocity = Vector3.new(0, 0, 0) end
                             return
                         end
 
-                        -- Предсказать позицию мяча
-                        local predicted = predictBallPos(ball, farmPredictMul)
-                        local targetPos = Vector3.new(
-                            predicted.X,
-                            predicted.Y + 2,
-                            predicted.Z
-                        )
+                        -- Определяем режим удара
+                        local mode = farmHitMode == "auto"
+                            and getBestHitMode(ball, hrp)
+                            or  farmHitMode
+
+                        -- Предсказываем позицию и выбираем offset
+                        local predicted  = predictBallPos(ball, farmPredictMul)
+                        local offset     = getTargetOffset(mode)
+                        local targetPos  = predicted + offset
 
                         local dist = (ball.Position - hrp.Position).Magnitude
 
-                        -- Лететь к мячу
+                        -- Летим к мячу
                         farmFlyTo(targetPos)
 
-                        -- Подлетели — бить
+                        -- Бьём когда достаточно близко
                         local now = tick()
                         if dist <= farmHitDist and (now - lastHitTime) >= hitCooldown then
                             lastHitTime = now
@@ -1382,20 +1505,31 @@ TAutoFarm:CreateToggle({
                                 hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir.Unit)
                             end
 
-                            -- Прыжок
-                            if farmAutoJump then
+                            -- Прыжок только для spike/set
+                            local needJump = (mode == "spike" or mode == "set")
+                            if farmAutoJump and needJump then
                                 VirtualInputManager:SendKeyEvent(true,  Enum.KeyCode.Space, false, game)
                                 task.wait(0.08)
                                 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                                task.wait(0.05)
                             end
 
-                            -- Клик (удар)
+                            -- Нажимаем клавишу удара
+                            pressHitKey(mode)
+
+                            -- Дополнительный клик мышью
                             if farmAutoClick then
-                                task.wait(0.05)
+                                task.wait(0.04)
                                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true,  game, 1)
-                                task.wait(0.05)
+                                task.wait(0.04)
                                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
                             end
+
+                            -- Логируем удар
+                            Connections._farmLog = nil
+                            task.defer(function()
+                                Notify("Farm Hit", mode:upper() .. " | dist " .. math.floor(dist))
+                            end)
                         end
                     end)
                 end
@@ -1403,7 +1537,7 @@ TAutoFarm:CreateToggle({
                 farmFlyDestroy()
             end)
 
-            Notify("Auto Farm", "ON — fly mode | dist " .. farmHitDist)
+            Notify("Auto Farm", "ON | mode: " .. farmHitMode)
         else
             autoFarm = false
             farmFlyDestroy()
@@ -1892,6 +2026,138 @@ TVisuals:CreateButton({
     end
 })
 
+-- ============================================================
+-- FPS BOOST
+-- ============================================================
+TVisuals:CreateDivider()
+TVisuals:CreateSection("FPS Boost")
+
+local fpsBoostEnabled  = false
+local savedDecals      = {}
+local savedParticles   = {}
+local savedTextures    = {}
+local savedShadows     = Lighting.GlobalShadows
+local savedFogEnd      = Lighting.FogEnd
+local savedBrightness  = Lighting.Brightness
+
+local function enableFPSBoost()
+    -- 1. Рендер качество — минимум
+    pcall(function()
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    end)
+    -- 2. Тени выключить
+    Lighting.GlobalShadows = false
+    -- 3. Туман убрать
+    Lighting.FogEnd = 100000
+    -- 4. Bloom убрать
+    bloomEffect.Intensity = 0
+    -- 5. Яркость нормальная чтобы видеть
+    Lighting.Brightness = 2
+    -- 6. Fullscreen
+    pcall(function()
+        settings().Rendering.EnableFRM = false
+    end)
+    -- 7. Убрать все DecalService/Texture с карты
+    task.spawn(function()
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("Decal") or obj:IsA("SpecialMesh") then
+                savedDecals[obj] = obj.Transparency
+                obj.Transparency = 1
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or
+                   obj:IsA("Fire") or obj:IsA("Sparkles") then
+                savedParticles[obj] = obj.Enabled
+                obj.Enabled = false
+            elseif obj:IsA("SurfaceAppearance") then
+                table.insert(savedTextures, obj)
+                obj:Destroy()
+            end
+        end
+    end)
+    -- 8. Убрать лишние эффекты освещения
+    for _, effect in ipairs(Lighting:GetChildren()) do
+        if effect:IsA("BlurEffect") or effect:IsA("DepthOfFieldEffect") or
+           effect:IsA("SunRaysEffect") or effect:IsA("ColorCorrectionEffect") then
+            effect.Enabled = false
+        end
+    end
+    Notify("FPS Boost", "✅ ON — quality minimized")
+end
+
+local function disableFPSBoost()
+    -- Восстанавливаем тени
+    Lighting.GlobalShadows = savedShadows
+    Lighting.FogEnd        = savedFogEnd
+    Lighting.Brightness    = savedBrightness
+    -- Восстанавливаем Decals
+    for obj, trans in pairs(savedDecals) do
+        if obj and obj.Parent then obj.Transparency = trans end
+    end
+    savedDecals = {}
+    -- Восстанавливаем частицы
+    for obj, state in pairs(savedParticles) do
+        if obj and obj.Parent then obj.Enabled = state end
+    end
+    savedParticles = {}
+    -- Восстанавливаем эффекты освещения
+    for _, effect in ipairs(Lighting:GetChildren()) do
+        if effect:IsA("BlurEffect") or effect:IsA("DepthOfFieldEffect") or
+           effect:IsA("SunRaysEffect") or effect:IsA("ColorCorrectionEffect") then
+            effect.Enabled = true
+        end
+    end
+    -- Рендер качество — авто
+    pcall(function()
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
+    end)
+    Notify("FPS Boost", "⛔ OFF — quality restored")
+end
+
+TVisuals:CreateToggle({
+    Name = "FPS Boost",
+    CurrentValue = false,
+    Callback = function(v)
+        fpsBoostEnabled = v
+        if v then
+            -- Сохраняем текущие значения
+            savedShadows    = Lighting.GlobalShadows
+            savedFogEnd     = Lighting.FogEnd
+            savedBrightness = Lighting.Brightness
+            enableFPSBoost()
+        else
+            disableFPSBoost()
+        end
+    end
+})
+
+TVisuals:CreateToggle({
+    Name = "Fullscreen Mode",
+    CurrentValue = false,
+    Callback = function(v)
+        pcall(function()
+            game:GetService("UserInputService").OverrideMouseIconBehavior =
+                v and Enum.OverrideMouseIconBehavior.ForceHide
+                  or  Enum.OverrideMouseIconBehavior.None
+        end)
+        pcall(function()
+            if v then
+                game:GetService("GuiService"):SetGlobalGuiInset(0,0,0,0)
+            end
+        end)
+        Notify("Fullscreen", v and "ON" or "OFF")
+    end
+})
+
+TVisuals:CreateSlider({
+    Name = "Render Distance",
+    Range = {64, 2048}, Increment = 64, CurrentValue = 512,
+    Callback = function(v)
+        pcall(function()
+            Workspace.StreamingMinRadius = v
+        end)
+        Lighting.FogEnd = v * 4
+    end
+})
+
 TProtection:CreateSection("Anti Cheat")
 
 TProtection:CreateToggle({
@@ -1999,6 +2265,7 @@ TAbout:CreateButton({
         Lighting.Brightness=defaultBrightness; Lighting.Ambient=defaultAmbient
         Lighting.OutdoorAmbient=defaultOutdoorAmbient; Lighting.FogEnd=defaultFogEnd
         bloomEffect.Intensity=0
+        if fpsBoostEnabled then disableFPSBoost(); fpsBoostEnabled=false end
         autoFarm=false; autoJoin=false; enablejoin=false; autoSpin=false
         farmFlyDestroy()
         if spinChangedConn then
