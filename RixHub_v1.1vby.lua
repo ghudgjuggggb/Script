@@ -180,47 +180,113 @@ local function findFirstPart(model)
     end
 end
 
-local function updateBallHitboxes(scale)
-    for _, model in ipairs(Workspace:GetChildren()) do
-        if model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$") then
-            local ball = model:FindFirstChild("Ball.001")
-            if not ball then
-                local base = findFirstPart(model)
-                if base then
-                    ball = Instance.new("Part")
-                    ball.Name = "Ball.001"
-                    ball.Shape = Enum.PartType.Ball
-                    ball.Size = Vector3.new(2,2,2) * scale
-                    ball.CFrame = base.CFrame
-                    ball.Anchored = true
-                    ball.CanCollide = false
-                    ball.Transparency = 0.7
-                    ball.Material = Enum.Material.ForceField
-                    ball.Color = Color3.fromRGB(0,255,0)
-                    ball.Parent = model
+-- ============================================================
+-- UNIFIED BALL HITBOX  (CLIENT_BALL model + BasePart + Heartbeat)
+-- ============================================================
+local ballHitboxEnabled  = false
+local ballHitboxConn     = nil
+local originalBallSizes  = {}   -- BasePart originals
+local managedModelBalls  = {}   -- Ball.001 parts we created
+
+local function applyBallHitboxToModel(model)
+    if not (model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$")) then return end
+    -- Удаляем старый если есть
+    local old = model:FindFirstChild("RixBall")
+    if old then old:Destroy() end
+    -- Находим базовую часть для CFrame
+    local base = nil
+    for _, d in ipairs(model:GetDescendants()) do
+        if d:IsA("BasePart") then base = d break end
+    end
+    if not base then return end
+    -- Создаём единый шар-хитбокс
+    local hb = Instance.new("Part")
+    hb.Name        = "RixBall"
+    hb.Shape       = Enum.PartType.Ball
+    hb.Size        = Vector3.new(1,1,1) * BallHitboxMult
+    hb.CFrame      = base.CFrame
+    hb.Anchored    = false
+    hb.CanCollide  = false
+    hb.Transparency= 0.5
+    hb.Material    = Enum.Material.ForceField
+    hb.Color       = Color3.fromRGB(0, 255, 100)
+    hb.Massless    = true
+    -- Привязываем к базовой части через WeldConstraint
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = base
+    weld.Part1 = hb
+    weld.Parent = hb
+    hb.Parent = model
+    table.insert(managedModelBalls, hb)
+end
+
+local function applyBallHitboxToPart(ball)
+    if not ball or not ball:IsA("BasePart") then return end
+    if originalBallSizes[ball] then return end -- уже применено
+    originalBallSizes[ball] = {
+        size        = ball.Size,
+        transparency= ball.Transparency,
+        material    = ball.Material,
+        color       = ball.Color,
+    }
+    ball.Size        = ball.Size * BallHitboxMult
+    ball.Transparency= 0.4
+    ball.Material    = Enum.Material.Neon
+    ball.Color       = Color3.fromRGB(255, 50, 50)
+end
+
+local function restoreAllBalls()
+    -- Удаляем RixBall из моделей
+    for _, hb in ipairs(managedModelBalls) do
+        if hb and hb.Parent then hb:Destroy() end
+    end
+    managedModelBalls = {}
+    -- Восстанавливаем BasePart
+    for ball, props in pairs(originalBallSizes) do
+        if ball and ball.Parent then
+            ball.Size        = props.size
+            ball.Transparency= props.transparency
+            ball.Material    = props.material
+            ball.Color       = props.color
+        end
+    end
+    originalBallSizes = {}
+end
+
+local function enableBallHitbox()
+    if ballHitboxConn then ballHitboxConn:Disconnect() end
+    -- Применяем ко всем существующим моделям и частям
+    for _, child in ipairs(Workspace:GetChildren()) do
+        applyBallHitboxToModel(child)
+    end
+    local part = FindBall()
+    if part then applyBallHitboxToPart(part) end
+
+    -- Heartbeat: следим за новыми мячами и обновляем позиции
+    ballHitboxConn = RunService.Heartbeat:Connect(function()
+        -- Новые модели
+        for _, child in ipairs(Workspace:GetChildren()) do
+            if child:IsA("Model") and child.Name:match("^CLIENT_BALL_%d+$") then
+                if not child:FindFirstChild("RixBall") then
+                    applyBallHitboxToModel(child)
                 end
-            else
-                ball.Size = Vector3.new(2,2,2) * scale
             end
         end
-    end
-end
-
-local function removeAllBallHitboxes()
-    for _, model in ipairs(Workspace:GetChildren()) do
-        if model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$") then
-            local ball = model:FindFirstChild("Ball.001")
-            if ball then ball:Destroy() end
+        -- Новые BasePart мячи
+        local ball = FindBall()
+        if ball and not originalBallSizes[ball] then
+            applyBallHitboxToPart(ball)
         end
-    end
+    end)
 end
 
-Workspace.ChildAdded:Connect(function(child)
-    if child:IsA("Model") and child.Name:match("^CLIENT_BALL_%d+$") then
-        task.wait(0.1)
-        updateBallHitboxes(BallHitboxMult)
+local function disableBallHitbox()
+    if ballHitboxConn then
+        ballHitboxConn:Disconnect()
+        ballHitboxConn = nil
     end
-end)
+    restoreAllBalls()
+end
 
 local function setHitboxSize(name, value)
     pcall(function()
@@ -1326,11 +1392,64 @@ TAutoFarm:CreateButton({
 
 TAutoSpin:CreateSection("Style Spinner")
 
-local spinToggleRef = nil
+local spinToggleRef    = nil
+local spinChangedConn  = nil
+
+-- Получить текстовый лейбл стиля
+local function getStyleLabel()
+    local ok, lbl = pcall(function()
+        return LP.PlayerGui.Interface.Lobby.Styles.TopPanel.DisplayName
+    end)
+    return (ok and lbl and lbl:IsA("TextLabel")) and lbl or nil
+end
+
+local function getCurrentStyle()
+    local lbl = getStyleLabel()
+    return lbl and lbl.Text or nil
+end
+
+local function getStyleRF()
+    local ok, rf = pcall(function()
+        return ReplicatedStorage
+            :WaitForChild("Packages",    10)
+            :WaitForChild("_Index",      10)
+            :WaitForChild("sleitnick_knit@1.7.0", 10)
+            :WaitForChild("knit",        10)
+            :WaitForChild("Services",    10)
+            :WaitForChild("StyleService",10)
+            :WaitForChild("RF",          10)
+            :WaitForChild("Roll",        10)
+    end)
+    return (ok and rf) and rf or nil
+end
+
+-- Вызывается при каждом изменении стиля (мгновенно)
+local function onStyleChanged(newText)
+    if not autoSpin then return end
+    if not newText or newText == "" then return end
+    if table.find(desiredStyles, newText) then
+        -- МГНОВЕННАЯ остановка
+        autoSpin = false
+        if spinChangedConn then
+            spinChangedConn:Disconnect()
+            spinChangedConn = nil
+        end
+        if spinToggleRef then
+            task.defer(function() spinToggleRef:Set(false) end)
+        end
+        Luna:Notification({
+            Title   = "🎉 Style Obtained!",
+            Icon    = "check_circle",
+            ImageSource = "Material",
+            Content = "Got: " .. newText .. " — Spin stopped instantly!"
+        })
+    end
+end
 
 TAutoSpin:CreateDropdown({
     Name = "Desired Styles",
-    Options = {"Oikawa","Bokuto","Kageyama","Sawamura","Ushijima","Kozume","Kuroo","Yamamoto","Azumane","Yaku","Hinata"},
+    Options = {"Oikawa","Bokuto","Kageyama","Sawamura","Ushijima",
+               "Kozume","Kuroo","Yamamoto","Azumane","Yaku","Hinata"},
     CurrentOption = {"Hinata"},
     MultipleOptions = true,
     Callback = function(option)
@@ -1338,83 +1457,86 @@ TAutoSpin:CreateDropdown({
     end
 })
 
-local function getCurrentStyle()
-    local ok, result = pcall(function()
-        return LP.PlayerGui.Interface.Lobby.Styles.TopPanel.DisplayName.Text
-    end)
-    return ok and result or nil
-end
-
-local function getStyleRF()
-    local ok, rf = pcall(function()
-        return ReplicatedStorage
-            :WaitForChild("Packages")
-            :WaitForChild("_Index")
-            :WaitForChild("sleitnick_knit@1.7.0")
-            :WaitForChild("knit")
-            :WaitForChild("Services")
-            :WaitForChild("StyleService")
-            :WaitForChild("RF")
-            :WaitForChild("Roll")
-    end)
-    return ok and rf or nil
-end
-
 spinToggleRef = TAutoSpin:CreateToggle({
     Name = "Auto Spin",
     CurrentValue = false,
     Callback = function(v)
         autoSpin = v
-        if v then
-            local rf = getStyleRF()
-            if not rf then
-                Notify("Auto Spin", "❌ StyleService not found!")
-                autoSpin = false
-                if spinToggleRef then spinToggleRef:Set(false) end
-                return
+
+        -- Всегда отключаем старый listener
+        if spinChangedConn then
+            spinChangedConn:Disconnect()
+            spinChangedConn = nil
+        end
+
+        if not v then
+            Notify("Auto Spin", "Stopped")
+            return
+        end
+
+        -- Проверяем что мы в лобби и StyleService доступен
+        local rf = getStyleRF()
+        if not rf then
+            Notify("Auto Spin", "❌ StyleService not found! Open Lobby first.")
+            autoSpin = false
+            task.defer(function() spinToggleRef:Set(false) end)
+            return
+        end
+
+        -- Проверяем сразу — вдруг нужный стиль уже есть
+        local current = getCurrentStyle()
+        if current and table.find(desiredStyles, current) then
+            autoSpin = false
+            task.defer(function() spinToggleRef:Set(false) end)
+            Luna:Notification({
+                Title   = "🎉 Already have it!",
+                Icon    = "check_circle",
+                ImageSource = "Material",
+                Content = "Current style: " .. current
+            })
+            return
+        end
+
+        -- Подписываемся на Changed — ловим смену стиля МГНОВЕННО
+        local lbl = getStyleLabel()
+        if lbl then
+            spinChangedConn = lbl:GetPropertyChangedSignal("Text"):Connect(function()
+                onStyleChanged(lbl.Text)
+            end)
+        end
+
+        Notify("Auto Spin", "Running → " .. table.concat(desiredStyles, ", "))
+
+        -- Основной цикл роллов
+        task.spawn(function()
+            while autoSpin do
+                -- Двойная защита: проверяем ДО ролла
+                local pre = getCurrentStyle()
+                if pre and table.find(desiredStyles, pre) then
+                    onStyleChanged(pre)
+                    break
+                end
+
+                local ok, err = pcall(function()
+                    rf:InvokeServer(false)
+                end)
+
+                if not ok then
+                    Notify("Auto Spin", "❌ Roll error: " .. tostring(err))
+                    task.wait(1)
+                end
+
+                -- Минимальная задержка чтобы сервер успел ответить
+                -- Changed listener поймает результат быстрее
+                task.wait(0.25)
             end
 
-            Notify("Auto Spin", "Running... styles: " .. table.concat(desiredStyles, ", "))
-
-            task.spawn(function()
-                while autoSpin do
-                    local current = getCurrentStyle()
-
-                    if current and table.find(desiredStyles, current) then
-                        autoSpin = false
-                        if spinToggleRef then spinToggleRef:Set(false) end
-                        Luna:Notification({
-                            Title = "🎉 Style Obtained!",
-                            Icon = "check_circle",
-                            ImageSource = "Material",
-                            Content = "Got: " .. current .. " — Auto Spin stopped!"
-                        })
-                        break
-                    end
-
-                    pcall(function()
-                        rf:InvokeServer(false)
-                    end)
-
-                    task.wait(0.5)
-
-                    local afterRoll = getCurrentStyle()
-                    if afterRoll and table.find(desiredStyles, afterRoll) then
-                        autoSpin = false
-                        if spinToggleRef then spinToggleRef:Set(false) end
-                        Luna:Notification({
-                            Title = "🎉 Style Obtained!",
-                            Icon = "check_circle",
-                            ImageSource = "Material",
-                            Content = "Got: " .. afterRoll .. " — Auto Spin stopped!"
-                        })
-                        break
-                    end
-                end
-            end)
-        else
-            Notify("Auto Spin", "Stopped")
-        end
+            -- Чистим listener при выходе
+            if spinChangedConn then
+                spinChangedConn:Disconnect()
+                spinChangedConn = nil
+            end
+        end)
     end
 })
 
@@ -1446,52 +1568,34 @@ for _, ps in ipairs(powerList) do
     TPower:CreateDivider()
 end
 
-THitboxes:CreateSection("Ball Model Hitbox (CLIENT_BALL)")
+THitboxes:CreateSection("Ball Hitbox (Unified — Model + Part)")
 
 THitboxes:CreateToggle({
-    Name="Ball Model Hitbox (green sphere)", CurrentValue=false,
-    Callback=function(v)
-        if v then updateBallHitboxes(BallHitboxMult) Notify("Ball Hitbox","ON x"..BallHitboxMult)
-        else removeAllBallHitboxes() Notify("Ball Hitbox","OFF") end
-    end
-})
-THitboxes:CreateSlider({
-    Name="Ball Model Size", Range={0,20}, Increment=0.1, CurrentValue=5,
-    Callback=function(v) BallHitboxMult=v; updateBallHitboxes(v) end
-})
-THitboxes:CreateDivider()
-
-THitboxes:CreateSection("Ball Part Hitbox")
-THitboxes:CreateToggle({
-    Name="Ball Part Hitbox (scale ball part)", CurrentValue=false,
-    Callback=function(v)
-        disconnect("BallHitbox2"); OriginalBallSizes={}
+    Name = "Ball Hitbox",
+    CurrentValue = false,
+    Callback = function(v)
+        ballHitboxEnabled = v
         if v then
-            Connections.BallHitbox2=RunService.Heartbeat:Connect(function()
-                local ball=FindBall()
-                if ball and not OriginalBallSizes[ball] then
-                    OriginalBallSizes[ball]=ball.Size
-                    ball.Size=ball.Size*BallHitboxMult
-                    ball.Transparency=0.3
-                    ball.Material=Enum.Material.Neon
-                    ball.Color=Color3.fromRGB(255,0,100)
-                end
-            end)
-            Notify("Ball Part Hitbox","ON")
+            enableBallHitbox()
+            Notify("Ball Hitbox", "ON — size x" .. BallHitboxMult)
         else
-            for ball, size in pairs(OriginalBallSizes) do
-                if ball and ball.Parent then
-                    ball.Size=size; ball.Transparency=0
-                    ball.Material=Enum.Material.Plastic
-                    ball.Color=Color3.fromRGB(255,255,255)
-                end
-            end
-            OriginalBallSizes={}
-            Notify("Ball Part Hitbox","OFF")
+            disableBallHitbox()
+            Notify("Ball Hitbox", "OFF — restored")
         end
     end
 })
-THitboxes:CreateDivider()
+
+THitboxes:CreateSlider({
+    Name = "Ball Hitbox Size",
+    Range = {1, 30}, Increment = 0.5, CurrentValue = 5,
+    Callback = function(v)
+        BallHitboxMult = v
+        if ballHitboxEnabled then
+            disableBallHitbox()
+            enableBallHitbox()
+        end
+    end
+})
 
 THitboxes:CreateSection("Skill Hitboxes (ReplicatedStorage.Assets.Hitboxes)")
 
@@ -1794,7 +1898,8 @@ TAbout:CreateButton({
         for ball,size in pairs(OriginalBallSizes) do
             if ball and ball.Parent then ball.Size=size; ball.Transparency=0; ball.Material=Enum.Material.Plastic; ball.Color=Color3.fromRGB(255,255,255) end
         end; OriginalBallSizes={}
-        removeAllBallHitboxes(); removeAntennas(); removeServeCorners(); removeSpikeZones()
+        disableBallHitbox()
+        removeAntennas(); removeServeCorners(); removeSpikeZones()
         SafeDestroy(PlatformPart); PlatformPart=nil
         SafeDestroy(bodyVelocity); bodyVelocity=nil
         DestroyReachCircle()
@@ -1805,6 +1910,7 @@ TAbout:CreateButton({
         bloomEffect.Intensity=0
         autoFarm=false; autoJoin=false; enablejoin=false; autoSpin=false
         farmFlyDestroy()
+        if spinChangedConn then spinChangedConn:Disconnect() spinChangedConn=nil end
         linesEnabled=false; espJumpEnabled=false; powerfulServe=false
         vbSetting=false; vbServing=false; vbSpiking=false; vbPower=false; vbSprint=false
         IsJumping=false; AntiCheatEnabled=false; ProtectedPlayers={}; BlockedRemotes={}
