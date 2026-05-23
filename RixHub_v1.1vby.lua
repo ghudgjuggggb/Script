@@ -53,7 +53,6 @@ local ReachDistance  = 10
 local lineDistance   = 50
 
 local BallHitboxMult = 5
-local OriginalBallSizes = {}
 
 local IsJumping      = false
 local autoShiftLock  = false
@@ -183,69 +182,63 @@ end
 -- ============================================================
 -- UNIFIED BALL HITBOX  (CLIENT_BALL model + BasePart + Heartbeat)
 -- ============================================================
-local ballHitboxEnabled  = false
-local ballHitboxConn     = nil
-local originalBallSizes  = {}   -- BasePart originals
-local managedModelBalls  = {}   -- Ball.001 parts we created
+local ballHitboxEnabled   = false
+local ballHitboxLoopAlive = false
+local originalBallSizes   = {}
+local managedModelBalls   = {}
+local ballChildAddedConn  = nil
 
 local function applyBallHitboxToModel(model)
     if not (model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$")) then return end
-    -- Удаляем старый если есть
-    local old = model:FindFirstChild("RixBall")
-    if old then old:Destroy() end
-    -- Находим базовую часть для CFrame
+    if model:FindFirstChild("RixBall") then return end  -- уже есть
     local base = nil
     for _, d in ipairs(model:GetDescendants()) do
-        if d:IsA("BasePart") then base = d break end
+        if d:IsA("BasePart") then base = d; break end
     end
     if not base then return end
-    -- Создаём единый шар-хитбокс
-    local hb = Instance.new("Part")
-    hb.Name        = "RixBall"
-    hb.Shape       = Enum.PartType.Ball
-    hb.Size        = Vector3.new(1,1,1) * BallHitboxMult
-    hb.CFrame      = base.CFrame
-    hb.Anchored    = false
-    hb.CanCollide  = false
-    hb.Transparency= 0.5
-    hb.Material    = Enum.Material.ForceField
-    hb.Color       = Color3.fromRGB(0, 255, 100)
-    hb.Massless    = true
-    -- Привязываем к базовой части через WeldConstraint
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = base
-    weld.Part1 = hb
-    weld.Parent = hb
-    hb.Parent = model
+    local hb          = Instance.new("Part")
+    hb.Name           = "RixBall"
+    hb.Shape          = Enum.PartType.Ball
+    hb.Size           = Vector3.new(1, 1, 1) * BallHitboxMult
+    hb.CFrame         = base.CFrame
+    hb.Anchored       = false
+    hb.CanCollide     = false
+    hb.Transparency   = 0.5
+    hb.Material       = Enum.Material.ForceField
+    hb.Color          = Color3.fromRGB(0, 255, 100)
+    hb.Massless       = true
+    local weld        = Instance.new("WeldConstraint")
+    weld.Part0        = base
+    weld.Part1        = hb
+    weld.Parent       = hb
+    hb.Parent         = model
     table.insert(managedModelBalls, hb)
 end
 
 local function applyBallHitboxToPart(ball)
     if not ball or not ball:IsA("BasePart") then return end
-    if originalBallSizes[ball] then return end -- уже применено
+    if originalBallSizes[ball] then return end
     originalBallSizes[ball] = {
-        size        = ball.Size,
-        transparency= ball.Transparency,
-        material    = ball.Material,
-        color       = ball.Color,
+        size         = ball.Size,
+        transparency = ball.Transparency,
+        material     = ball.Material,
+        color        = ball.Color,
     }
     ball.Size        = ball.Size * BallHitboxMult
-    ball.Transparency= 0.4
+    ball.Transparency = 0.45
     ball.Material    = Enum.Material.Neon
     ball.Color       = Color3.fromRGB(255, 50, 50)
 end
 
 local function restoreAllBalls()
-    -- Удаляем RixBall из моделей
     for _, hb in ipairs(managedModelBalls) do
         if hb and hb.Parent then hb:Destroy() end
     end
     managedModelBalls = {}
-    -- Восстанавливаем BasePart
     for ball, props in pairs(originalBallSizes) do
         if ball and ball.Parent then
             ball.Size        = props.size
-            ball.Transparency= props.transparency
+            ball.Transparency = props.transparency
             ball.Material    = props.material
             ball.Color       = props.color
         end
@@ -254,36 +247,57 @@ local function restoreAllBalls()
 end
 
 local function enableBallHitbox()
-    if ballHitboxConn then ballHitboxConn:Disconnect() end
-    -- Применяем ко всем существующим моделям и частям
+    if ballHitboxLoopAlive then return end
+    ballHitboxLoopAlive = true
+
+    -- Применяем сразу к существующим
     for _, child in ipairs(Workspace:GetChildren()) do
         applyBallHitboxToModel(child)
     end
     local part = FindBall()
     if part then applyBallHitboxToPart(part) end
 
-    -- Heartbeat: следим за новыми мячами и обновляем позиции
-    ballHitboxConn = RunService.Heartbeat:Connect(function()
-        -- Новые модели
-        for _, child in ipairs(Workspace:GetChildren()) do
-            if child:IsA("Model") and child.Name:match("^CLIENT_BALL_%d+$") then
-                if not child:FindFirstChild("RixBall") then
-                    applyBallHitboxToModel(child)
+    -- ChildAdded: ловим новый мяч без polling
+    if ballChildAddedConn then ballChildAddedConn:Disconnect() end
+    ballChildAddedConn = Workspace.ChildAdded:Connect(function(child)
+        if not ballHitboxEnabled then return end
+        task.wait(0.15)
+        applyBallHitboxToModel(child)
+    end)
+
+    -- Редкий фоновый цикл (каждые 2 сек) для BasePart мячей
+    -- НЕ Heartbeat — не нагружает каждый кадр
+    task.spawn(function()
+        while ballHitboxLoopAlive do
+            task.wait(2)
+            if not ballHitboxEnabled then break end
+            pcall(function()
+                local ball = FindBall()
+                if ball and not originalBallSizes[ball] then
+                    applyBallHitboxToPart(ball)
                 end
-            end
-        end
-        -- Новые BasePart мячи
-        local ball = FindBall()
-        if ball and not originalBallSizes[ball] then
-            applyBallHitboxToPart(ball)
+                -- Чистим мёртвые записи
+                for b, _ in pairs(originalBallSizes) do
+                    if not (b and b.Parent) then
+                        originalBallSizes[b] = nil
+                    end
+                end
+                for i = #managedModelBalls, 1, -1 do
+                    local hb = managedModelBalls[i]
+                    if not (hb and hb.Parent) then
+                        table.remove(managedModelBalls, i)
+                    end
+                end
+            end)
         end
     end)
 end
 
 local function disableBallHitbox()
-    if ballHitboxConn then
-        ballHitboxConn:Disconnect()
-        ballHitboxConn = nil
+    ballHitboxLoopAlive = false
+    if ballChildAddedConn then
+        ballChildAddedConn:Disconnect()
+        ballChildAddedConn = nil
     end
     restoreAllBalls()
 end
@@ -760,92 +774,72 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end)
 
-local enablejoin     = false
-local joinTeam       = 1     -- 1 или 2
-local joinSlot       = 0     -- 0 = любой свободный
+local enablejoin = false
 
--- Получаем RF для вступления в команду
-local function getRequestJoinRF()
+-- Кэшируем RF один раз
+local joinRF = nil
+local function getJoinRF()
+    if joinRF then return joinRF end
     local ok, rf = pcall(function()
         return ReplicatedStorage
-            :WaitForChild("Packages",    10)
-            :WaitForChild("_Index",      10)
-            :WaitForChild("sleitnick_knit@1.7.0", 10)
-            :WaitForChild("knit",        10)
-            :WaitForChild("Services",    10)
-            :WaitForChild("GameService", 10)
-            :WaitForChild("RF",          10)
-            :WaitForChild("RequestJoin", 10)
+            :WaitForChild("Packages", 5)
+            :WaitForChild("_Index", 5)
+            :WaitForChild("sleitnick_knit@1.7.0", 5)
+            :WaitForChild("knit", 5)
+            :WaitForChild("Services", 5)
+            :WaitForChild("GameService", 5)
+            :WaitForChild("RF", 5)
+            :WaitForChild("RequestJoin", 5)
     end)
-    return (ok and rf) and rf or nil
+    if ok and rf then joinRF = rf end
+    return joinRF
 end
 
--- Попытка занять конкретный слот
-local function tryJoinSlot(rf, team, slot)
-    local ok, result = pcall(function()
-        return rf:InvokeServer(team, slot)
-    end)
-    return ok and result
-end
-
--- Главная функция Auto Join
+-- Основной Auto Join цикл
 local function teamSelection()
-    if not enablejoin then return end
-
     task.spawn(function()
-        local rf = getRequestJoinRF()
+        local rf = getJoinRF()
         if not rf then
-            Notify("Auto Join", "❌ GameService/RequestJoin not found!")
+            Notify("Auto Join", "❌ RF not found! Try later.")
             enablejoin = false
             return
         end
 
-        -- Ждём пока появится экран выбора команды
-        local waited = 0
+        Notify("Auto Join", "🔍 Scanning teams...")
+
         while enablejoin do
-            task.wait(0.5)
-            waited = waited + 0.5
-
-            local inGame = pcall(function()
-                return LP.PlayerGui.Interface.Game.Visible
-            end)
-
-            -- Уже в игре — не нужно вступать
-            local ok2, gameVisible = pcall(function()
-                return LP.PlayerGui.Interface.Game.Visible
-            end)
-            if ok2 and gameVisible then
-                Notify("Auto Join", "Already in game!")
-                enablejoin = false
-                return
-            end
-
-            -- Пробуем занять слот
-            local slotToTry = joinSlot
-
-            if slotToTry == 0 then
-                -- Любой свободный: пробуем 1→6
-                for s = 1, 6 do
-                    if not enablejoin then break end
-                    local success = tryJoinSlot(rf, joinTeam, s)
-                    if success then
-                        Notify("Auto Join", "✅ Joined team " .. joinTeam .. " slot " .. s)
-                        enablejoin = false
-                        return
-                    end
-                    task.wait(0.1)
-                end
-            else
-                -- Конкретный слот
-                local success = tryJoinSlot(rf, joinTeam, slotToTry)
-                if success then
-                    Notify("Auto Join", "✅ Joined team " .. joinTeam .. " slot " .. slotToTry)
+            -- Команда 1: слоты 1 → 6
+            for slot = 1, 6 do
+                if not enablejoin then return end
+                local ok, res = pcall(function()
+                    return rf:InvokeServer(1, slot)
+                end)
+                if ok and res then
+                    Notify("Auto Join", "✅ Team 1 | Slot " .. slot)
                     enablejoin = false
                     return
                 end
+                task.wait(0.2)
             end
 
-            task.wait(0.3)
+            if not enablejoin then return end
+
+            -- Команда 2: слоты 1 → 6
+            for slot = 1, 6 do
+                if not enablejoin then return end
+                local ok, res = pcall(function()
+                    return rf:InvokeServer(2, slot)
+                end)
+                if ok and res then
+                    Notify("Auto Join", "✅ Team 2 | Slot " .. slot)
+                    enablejoin = false
+                    return
+                end
+                task.wait(0.2)
+            end
+
+            -- Пауза перед следующим полным циклом
+            task.wait(0.5)
         end
     end)
 end
@@ -1421,29 +1415,7 @@ TAutoFarm:CreateToggle({
 TAutoFarm:CreateDivider()
 TAutoFarm:CreateSection("Auto Join Match")
 
-TAutoFarm:CreateDropdown({
-    Name = "Team",
-    Options = {"1 (Red)", "2 (Blue)"},
-    CurrentOption = {"1 (Red)"},
-    MultipleOptions = false,
-    Callback = function(opt)
-        local v = type(opt) == "table" and opt[1] or opt
-        joinTeam = v:find("2") and 2 or 1
-        Notify("Team", "Selected: Team " .. joinTeam)
-    end
-})
-
-TAutoFarm:CreateDropdown({
-    Name = "Slot (0 = any free)",
-    Options = {"0","1","2","3","4","5","6"},
-    CurrentOption = {"0"},
-    MultipleOptions = false,
-    Callback = function(opt)
-        local v = type(opt) == "table" and opt[1] or opt
-        joinSlot = tonumber(v) or 0
-        Notify("Slot", joinSlot == 0 and "Any free slot" or "Slot " .. joinSlot)
-    end
-})
+TAutoFarm:CreateLabel({ Text = "Tries Team 1 (slots 1-6) → Team 2 (slots 1-6)" })
 
 TAutoFarm:CreateToggle({
     Name = "Auto Join Match",
@@ -1453,34 +1425,33 @@ TAutoFarm:CreateToggle({
         autoJoin   = v
         if v then
             teamSelection()
-            Notify("Auto Join", "ON → team " .. joinTeam .. " slot " .. (joinSlot == 0 and "any" or joinSlot))
+            Notify("Auto Join", "ON — scanning both teams...")
         else
+            enablejoin = false
             Notify("Auto Join", "OFF")
         end
     end
 })
 
 TAutoFarm:CreateButton({
-    Name = "Join Now (manual)",
+    Name = "Join Now (one attempt)",
     Callback = function()
-        local rf = getRequestJoinRF()
+        local rf = getJoinRF()
         if not rf then
-            Notify("Join", "❌ RF not found")
+            Notify("Join", "❌ RF not found — open lobby first")
             return
         end
-        if joinSlot == 0 then
-            for s = 1, 6 do
-                local ok = pcall(function() rf:InvokeServer(joinTeam, s) end)
-                if ok then
-                    Notify("Join", "✅ team " .. joinTeam .. " slot " .. s)
-                    break
+        for team = 1, 2 do
+            for slot = 1, 6 do
+                local ok, res = pcall(function() return rf:InvokeServer(team, slot) end)
+                if ok and res then
+                    Notify("Join", "✅ Team " .. team .. " Slot " .. slot)
+                    return
                 end
-                task.wait(0.1)
+                task.wait(0.15)
             end
-        else
-            pcall(function() rf:InvokeServer(joinTeam, joinSlot) end)
-            Notify("Join", "team " .. joinTeam .. " slot " .. joinSlot)
         end
+        Notify("Join", "No free slots found")
     end
 })
 
@@ -2016,13 +1987,12 @@ TAbout:CreateButton({
         for p,_ in pairs(lines) do removeLine(p) end
         for p,_ in pairs(espHighlights) do removeJumpESP(p) end
         for part,trans in pairs(OriginalParts) do if part and part.Parent then part.Transparency=trans end end; OriginalParts={}
-        for ball,size in pairs(OriginalBallSizes) do
-            if ball and ball.Parent then ball.Size=size; ball.Transparency=0; ball.Material=Enum.Material.Plastic; ball.Color=Color3.fromRGB(255,255,255) end
-        end; OriginalBallSizes={}
         disableBallHitbox()
         removeAntennas(); removeServeCorners(); removeSpikeZones()
-        SafeDestroy(PlatformPart); PlatformPart=nil
-        SafeDestroy(bodyVelocity); bodyVelocity=nil
+        SafeDestroy(PlatformPart)
+        PlatformPart = nil
+        SafeDestroy(bodyVelocity)
+        bodyVelocity = nil
         DestroyReachCircle()
         local hum=getHum()
         if hum then hum.WalkSpeed=OriginalWalkSpeed; hum.JumpHeight=OriginalJumpHeight end
@@ -2031,7 +2001,10 @@ TAbout:CreateButton({
         bloomEffect.Intensity=0
         autoFarm=false; autoJoin=false; enablejoin=false; autoSpin=false
         farmFlyDestroy()
-        if spinChangedConn then spinChangedConn:Disconnect() spinChangedConn=nil end
+        if spinChangedConn then
+            spinChangedConn:Disconnect()
+            spinChangedConn = nil
+        end
         linesEnabled=false; espJumpEnabled=false; powerfulServe=false
         vbSetting=false; vbServing=false; vbSpiking=false; vbPower=false; vbSprint=false
         IsJumping=false; AntiCheatEnabled=false; ProtectedPlayers={}; BlockedRemotes={}
@@ -2041,17 +2014,22 @@ TAbout:CreateButton({
 
 LP.CharacterAdded:Connect(function()
     task.wait(1)
-    local hum=getHum()
-    if hum then hum.WalkSpeed=OriginalWalkSpeed; hum.JumpHeight=OriginalJumpHeight end
-    if LastPos then LastPos=getHRP() and getHRP().Position or Vector3.new(0,0,0) end
+    local hum = getHum()
+    if hum then
+        hum.WalkSpeed  = OriginalWalkSpeed
+        hum.JumpHeight = OriginalJumpHeight
+    end
+    if LastPos then
+        LastPos = getHRP() and getHRP().Position or Vector3.new(0, 0, 0)
+    end
     if AntiCheatEnabled then task.delay(2, SetupAntiCheatBypass) end
     if enablejoin then task.spawn(teamSelection) end
 end)
 
 Players.PlayerAdded:Connect(function(p)
     setupJumpESP(p)
-    if AntiCheatEnabled then ProtectedPlayers[p.Name]=true end
+    if AntiCheatEnabled then ProtectedPlayers[p.Name] = true end
 end)
 
-Notify("Rix Hub","v3.0 Full Merge Loaded!")
+Notify("Rix Hub", "v3.0 Full Merge Loaded!")
 print("✅ RixHub v3.0 Full Merge Ready | 50+ Features")
