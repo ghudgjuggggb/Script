@@ -1461,6 +1461,8 @@ TAutoFarm:CreateToggle({
             task.spawn(function()
                 local lastHitTime = 0
                 local hitCooldown = 0.55
+                local stuckTimer  = 0
+                local lastPos     = Vector3.new(0,0,0)
 
                 while autoFarm do
                     task.wait(0.05)
@@ -1469,28 +1471,42 @@ TAutoFarm:CreateToggle({
                         local hum = getHum()
                         if not hrp or not hum then return end
 
-                        local ball = getBallModel()
+                        -- Ищем мяч: сначала модель CLIENT_BALL, потом любой BasePart
+                        local ball = getBallModel() or FindBall()
                         if not ball then
-                            if farmFlyBV then farmFlyBV.Velocity = Vector3.new(0, 0, 0) end
+                            if farmFlyBV then farmFlyBV.Velocity = Vector3.new(0,0,0) end
                             return
                         end
 
-                        -- Определяем режим удара
+                        -- Определяем режим
                         local mode = farmHitMode == "auto"
                             and getBestHitMode(ball, hrp)
                             or  farmHitMode
 
-                        -- Предсказываем позицию и выбираем offset
-                        local predicted  = predictBallPos(ball, farmPredictMul)
-                        local offset     = getTargetOffset(mode)
-                        local targetPos  = predicted + offset
+                        -- Предсказываем позицию мяча
+                        local predicted = predictBallPos(ball, farmPredictMul)
+                        local offset    = getTargetOffset(mode)
+                        local targetPos = predicted + offset
 
                         local dist = (ball.Position - hrp.Position).Magnitude
 
-                        -- Летим к мячу
-                        farmFlyTo(targetPos)
+                        -- Проверяем "застрял ли" (не движемся к мячу)
+                        if (hrp.Position - lastPos).Magnitude < 0.3 and dist > farmHitDist + 3 then
+                            stuckTimer = stuckTimer + 0.05
+                        else
+                            stuckTimer = 0
+                        end
+                        lastPos = hrp.Position
 
-                        -- Бьём когда достаточно близко
+                        -- Если застряли > 1 секунды — телепортируем ближе
+                        if stuckTimer > 1.0 then
+                            stuckTimer = 0
+                            hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0))
+                        else
+                            farmFlyTo(targetPos)
+                        end
+
+                        -- Удар
                         local now = tick()
                         if dist <= farmHitDist and (now - lastHitTime) >= hitCooldown then
                             lastHitTime = now
@@ -1505,7 +1521,7 @@ TAutoFarm:CreateToggle({
                                 hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir.Unit)
                             end
 
-                            -- Прыжок только для spike/set
+                            -- Прыжок для spike/set
                             local needJump = (mode == "spike" or mode == "set")
                             if farmAutoJump and needJump then
                                 VirtualInputManager:SendKeyEvent(true,  Enum.KeyCode.Space, false, game)
@@ -1514,22 +1530,16 @@ TAutoFarm:CreateToggle({
                                 task.wait(0.05)
                             end
 
-                            -- Нажимаем клавишу удара
+                            -- Клавиша удара
                             pressHitKey(mode)
 
-                            -- Дополнительный клик мышью
+                            -- Клик мышью
                             if farmAutoClick then
                                 task.wait(0.04)
                                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true,  game, 1)
                                 task.wait(0.04)
                                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
                             end
-
-                            -- Логируем удар
-                            Connections._farmLog = nil
-                            task.defer(function()
-                                Notify("Farm Hit", mode:upper() .. " | dist " .. math.floor(dist))
-                            end)
                         end
                     end)
                 end
@@ -2041,75 +2051,72 @@ local savedFogEnd      = Lighting.FogEnd
 local savedBrightness  = Lighting.Brightness
 
 local function enableFPSBoost()
-    -- 1. Рендер качество — минимум
+    -- Рендер качество через executor API
     pcall(function()
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
     end)
-    -- 2. Тени выключить
-    Lighting.GlobalShadows = false
-    -- 3. Туман убрать
-    Lighting.FogEnd = 100000
-    -- 4. Bloom убрать
-    bloomEffect.Intensity = 0
-    -- 5. Яркость нормальная чтобы видеть
-    Lighting.Brightness = 2
-    -- 6. Fullscreen
-    pcall(function()
-        settings().Rendering.EnableFRM = false
-    end)
-    -- 7. Убрать все DecalService/Texture с карты
+    -- Тени
+    Lighting.GlobalShadows   = false
+    -- Атмосфера
+    Lighting.FogEnd          = 100000
+    Lighting.FogStart        = 99000
+    Lighting.Brightness      = 2
+    bloomEffect.Intensity    = 0
+    -- Эффекты Lighting — отключаем все
+    for _, fx in ipairs(Lighting:GetChildren()) do
+        if fx:IsA("PostEffect") or fx:IsA("Sky") or fx:IsA("Atmosphere") then
+            fx.Enabled = false
+        end
+    end
+    -- Частицы и декали — постепенно по 30 штук за раз чтобы не лагать
     task.spawn(function()
+        local batch = 0
         for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("Decal") or obj:IsA("SpecialMesh") then
-                savedDecals[obj] = obj.Transparency
-                obj.Transparency = 1
-            elseif obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or
-                   obj:IsA("Fire") or obj:IsA("Sparkles") then
+            if not fpsBoostEnabled then break end
+            if obj:IsA("ParticleEmitter") or obj:IsA("Fire") or
+               obj:IsA("Smoke") or obj:IsA("Sparkles") then
                 savedParticles[obj] = obj.Enabled
                 obj.Enabled = false
-            elseif obj:IsA("SurfaceAppearance") then
-                table.insert(savedTextures, obj)
-                obj:Destroy()
+                batch = batch + 1
+                if batch >= 30 then batch = 0; task.wait() end
+            elseif obj:IsA("Decal") then
+                savedDecals[obj] = obj.Transparency
+                obj.Transparency = 1
+                batch = batch + 1
+                if batch >= 30 then batch = 0; task.wait() end
             end
         end
     end)
-    -- 8. Убрать лишние эффекты освещения
-    for _, effect in ipairs(Lighting:GetChildren()) do
-        if effect:IsA("BlurEffect") or effect:IsA("DepthOfFieldEffect") or
-           effect:IsA("SunRaysEffect") or effect:IsA("ColorCorrectionEffect") then
-            effect.Enabled = false
-        end
-    end
-    Notify("FPS Boost", "✅ ON — quality minimized")
+    Notify("FPS Boost", "✅ ON")
 end
 
 local function disableFPSBoost()
-    -- Восстанавливаем тени
+    -- Рендер качество назад
+    pcall(function()
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
+    end)
+    -- Освещение
     Lighting.GlobalShadows = savedShadows
     Lighting.FogEnd        = savedFogEnd
+    Lighting.FogStart      = 0
     Lighting.Brightness    = savedBrightness
-    -- Восстанавливаем Decals
-    for obj, trans in pairs(savedDecals) do
-        if obj and obj.Parent then obj.Transparency = trans end
+    -- Эффекты Lighting — включаем всё обратно
+    for _, fx in ipairs(Lighting:GetChildren()) do
+        if fx:IsA("PostEffect") or fx:IsA("Sky") or fx:IsA("Atmosphere") then
+            fx.Enabled = true
+        end
     end
-    savedDecals = {}
-    -- Восстанавливаем частицы
+    -- Частицы
     for obj, state in pairs(savedParticles) do
         if obj and obj.Parent then obj.Enabled = state end
     end
     savedParticles = {}
-    -- Восстанавливаем эффекты освещения
-    for _, effect in ipairs(Lighting:GetChildren()) do
-        if effect:IsA("BlurEffect") or effect:IsA("DepthOfFieldEffect") or
-           effect:IsA("SunRaysEffect") or effect:IsA("ColorCorrectionEffect") then
-            effect.Enabled = true
-        end
+    -- Декали
+    for obj, trans in pairs(savedDecals) do
+        if obj and obj.Parent then obj.Transparency = trans end
     end
-    -- Рендер качество — авто
-    pcall(function()
-        settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
-    end)
-    Notify("FPS Boost", "⛔ OFF — quality restored")
+    savedDecals = {}
+    Notify("FPS Boost", "⛔ OFF")
 end
 
 TVisuals:CreateToggle({
@@ -2118,7 +2125,6 @@ TVisuals:CreateToggle({
     Callback = function(v)
         fpsBoostEnabled = v
         if v then
-            -- Сохраняем текущие значения
             savedShadows    = Lighting.GlobalShadows
             savedFogEnd     = Lighting.FogEnd
             savedBrightness = Lighting.Brightness
@@ -2134,27 +2140,22 @@ TVisuals:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         pcall(function()
-            game:GetService("UserInputService").OverrideMouseIconBehavior =
+            UserInputService.OverrideMouseIconBehavior =
                 v and Enum.OverrideMouseIconBehavior.ForceHide
                   or  Enum.OverrideMouseIconBehavior.None
-        end)
-        pcall(function()
-            if v then
-                game:GetService("GuiService"):SetGlobalGuiInset(0,0,0,0)
-            end
         end)
         Notify("Fullscreen", v and "ON" or "OFF")
     end
 })
 
 TVisuals:CreateSlider({
-    Name = "Render Distance",
-    Range = {64, 2048}, Increment = 64, CurrentValue = 512,
+    Name = "Render Quality (1=min 10=max)",
+    Range = {1, 10}, Increment = 1, CurrentValue = 10,
     Callback = function(v)
         pcall(function()
-            Workspace.StreamingMinRadius = v
+            settings().Rendering.QualityLevel =
+                Enum.QualityLevel["Level0" .. (v < 10 and tostring(v) or "10")]
         end)
-        Lighting.FogEnd = v * 4
     end
 })
 
