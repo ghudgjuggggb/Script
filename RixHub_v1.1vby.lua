@@ -1113,50 +1113,176 @@ TMovement:CreateToggle({
 })
 TMovement:CreateSlider({ Name="Platform Height", Range={3,20}, Increment=1, CurrentValue=8, Callback=function(v) PlatHeight=v end })
 
-TAutoFarm:CreateSection("Auto Features")
+-- AUTO FARM CONFIG
+local farmFlySpeed   = 60
+local farmHitDist    = 12
+local farmPredictMul = 0.35
+local farmAutoJump   = true
+local farmAutoClick  = true
+local farmFlyBV      = nil
+
+-- Предсказание позиции мяча
+local function predictBallPos(ball, seconds)
+    local vel = ball.Velocity
+    local grav = Workspace.Gravity
+    return ball.Position
+        + vel * seconds
+        + Vector3.new(0, -0.5 * grav * seconds * seconds, 0)
+end
+
+-- Создать/удалить BodyVelocity для фарма
+local function farmFlyCreate()
+    local hrp = getHRP()
+    if not hrp then return end
+    if farmFlyBV then pcall(function() farmFlyBV:Destroy() end) end
+    farmFlyBV = Instance.new("BodyVelocity")
+    farmFlyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    farmFlyBV.Velocity  = Vector3.new(0, 0, 0)
+    farmFlyBV.P         = 5000
+    farmFlyBV.Name      = "FarmFlyBV"
+    farmFlyBV.Parent    = hrp
+end
+
+local function farmFlyDestroy()
+    if farmFlyBV then
+        pcall(function() farmFlyBV:Destroy() end)
+        farmFlyBV = nil
+    end
+end
+
+local function farmFlyTo(targetPos)
+    local hrp = getHRP()
+    if not hrp or not farmFlyBV then return end
+    local dir = (targetPos - hrp.Position)
+    local dist = dir.Magnitude
+    if dist < 0.5 then
+        farmFlyBV.Velocity = Vector3.new(0, 0, 0)
+        return
+    end
+    local speed = math.min(farmFlySpeed, dist * 6)
+    farmFlyBV.Velocity = dir.Unit * speed
+    -- Поворот в сторону мяча
+    local lookDir = Vector3.new(dir.X, 0, dir.Z)
+    if lookDir.Magnitude > 0.1 then
+        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir.Unit)
+    end
+end
+
+TAutoFarm:CreateSection("Auto Farm")
+
+TAutoFarm:CreateSlider({
+    Name = "Farm Fly Speed",
+    Range = {10, 200}, Increment = 5, CurrentValue = 60,
+    Callback = function(v) farmFlySpeed = v end
+})
+
+TAutoFarm:CreateSlider({
+    Name = "Hit Distance",
+    Range = {5, 30}, Increment = 1, CurrentValue = 12,
+    Callback = function(v) farmHitDist = v end
+})
+
+TAutoFarm:CreateSlider({
+    Name = "Ball Prediction (seconds)",
+    Range = {0, 1}, Increment = 0.05, CurrentValue = 0.35,
+    Callback = function(v) farmPredictMul = v end
+})
 
 TAutoFarm:CreateToggle({
-    Name="Auto Farm", CurrentValue=false,
-    Callback=function(v)
-        autoFarm=v
+    Name = "Auto Jump on hit",
+    CurrentValue = true,
+    Callback = function(v) farmAutoJump = v end
+})
+
+TAutoFarm:CreateToggle({
+    Name = "Auto Click on hit",
+    CurrentValue = true,
+    Callback = function(v) farmAutoClick = v end
+})
+
+TAutoFarm:CreateToggle({
+    Name = "Auto Farm",
+    CurrentValue = false,
+    Callback = function(v)
+        autoFarm = v
+
         if v then
+            farmFlyCreate()
+
             task.spawn(function()
+                local lastHitTime  = 0
+                local hitCooldown  = 0.6
+
                 while autoFarm do
-                    task.wait(0.3)
+                    task.wait(0.05)
                     pcall(function()
-                        local hrp=getHRP(); local hum=getHum()
+                        local hrp  = getHRP()
+                        local hum  = getHum()
                         if not hrp or not hum then return end
-                        local ball=getBallModel()
-                        if ball then
-                            hum:MoveTo(ball.Position)
-                            local dist=(ball.Position-hrp.Position).Magnitude
-                            if dist<=15 then
-                                local ok, folder=pcall(function() return Workspace.Map.BallNoCollide.Positions["2"] end)
-                                if ok and folder then
-                                    local parts={}
-                                    for _, p in ipairs(folder:GetChildren()) do
-                                        if p:IsA("BasePart") then table.insert(parts,p) end
-                                    end
-                                    if #parts>0 then
-                                        local target=parts[math.random(1,#parts)]
-                                        local look=(target.Position-hrp.Position).Unit
-                                        hrp.CFrame=CFrame.new(hrp.Position, hrp.Position+look)
-                                    end
-                                end
-                                if ball.Position.Y > hrp.Position.Y+5 then
-                                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-                                    task.wait(0.1)
-                                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-                                    VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
-                                    VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
-                                end
+
+                        -- Найти мяч
+                        local ball = getBallModel()
+                        if not ball then
+                            -- Мяч не найден — парить на месте
+                            if farmFlyBV then farmFlyBV.Velocity = Vector3.new(0,0,0) end
+                            return
+                        end
+
+                        -- Предсказать позицию мяча
+                        local predicted = predictBallPos(ball, farmPredictMul)
+                        local targetPos = Vector3.new(
+                            predicted.X,
+                            predicted.Y + 2,
+                            predicted.Z
+                        )
+
+                        local dist = (ball.Position - hrp.Position).Magnitude
+
+                        -- Лететь к мячу
+                        farmFlyTo(targetPos)
+
+                        -- Подлетели — бить
+                        local now = tick()
+                        if dist <= farmHitDist and (now - lastHitTime) >= hitCooldown then
+                            lastHitTime = now
+
+                            -- Смотрим на мяч
+                            local lookDir = Vector3.new(
+                                ball.Position.X - hrp.Position.X,
+                                0,
+                                ball.Position.Z - hrp.Position.Z
+                            )
+                            if lookDir.Magnitude > 0.1 then
+                                hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir.Unit)
+                            end
+
+                            -- Прыжок
+                            if farmAutoJump then
+                                VirtualInputManager:SendKeyEvent(true,  Enum.KeyCode.Space, false, game)
+                                task.wait(0.08)
+                                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                            end
+
+                            -- Клик (удар)
+                            if farmAutoClick then
+                                task.wait(0.05)
+                                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true,  game, 1)
+                                task.wait(0.05)
+                                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
                             end
                         end
                     end)
                 end
+
+                farmFlyDestroy()
             end)
-            Notify("Auto Farm","ON")
-        else autoFarm=false; Notify("Auto Farm","OFF") end
+
+            Notify("Auto Farm", "ON — fly mode | dist " .. farmHitDist)
+        else
+            autoFarm = false
+            farmFlyDestroy()
+            Notify("Auto Farm", "OFF")
+        end
     end
 })
 
@@ -1678,6 +1804,7 @@ TAbout:CreateButton({
         Lighting.OutdoorAmbient=defaultOutdoorAmbient; Lighting.FogEnd=defaultFogEnd
         bloomEffect.Intensity=0
         autoFarm=false; autoJoin=false; enablejoin=false; autoSpin=false
+        farmFlyDestroy()
         linesEnabled=false; espJumpEnabled=false; powerfulServe=false
         vbSetting=false; vbServing=false; vbSpiking=false; vbPower=false; vbSprint=false
         IsJumping=false; AntiCheatEnabled=false; ProtectedPlayers={}; BlockedRemotes={}
