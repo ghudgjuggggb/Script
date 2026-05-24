@@ -1354,6 +1354,56 @@ local function getTargetOffset(mode)
 end
 
 -- ============================================================
+-- ENEMY TARGETING FOR SPIKE
+-- ============================================================
+local farmAimEnemy = true   -- включать/выключать прицел на врага
+
+-- Найти ближайшего живого врага противоположной команды
+local function findNearestEnemy(hrp)
+    if not hrp then return nil end
+    local best, bestDist = nil, math.huge
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LP then continue end
+        -- Разные команды
+        local isEnemy = (LP.Team == nil) or
+                        (player.Team ~= nil and player.Team ~= LP.Team)
+        if not isEnemy then continue end
+        local char = player.Character
+        if not char then continue end
+        local eHRP = char:FindFirstChild("HumanoidRootPart")
+        local eHum = char:FindFirstChildOfClass("Humanoid")
+        if not eHRP or not eHum or eHum.Health <= 0 then continue end
+        local d = (eHRP.Position - hrp.Position).Magnitude
+        if d < bestDist then
+            bestDist = d
+            best     = eHRP
+        end
+    end
+    return best
+end
+
+-- Направление в сторону вражеской зоны (по Z-оси корта)
+-- В Volleyball Legends корт делится по оси Z: ~ < 0 и > 0
+local function getEnemyZoneDir(hrp)
+    if not hrp then return Vector3.new(0, 0, 1) end
+    -- Определяем на какой половине стоим
+    local myZ = hrp.Position.Z
+    -- Противник на другой стороне
+    return myZ < 0
+        and Vector3.new(0, 0,  1)   -- мы на отрицательной → враг на положительной
+        or  Vector3.new(0, 0, -1)   -- мы на положительной → враг на отрицательной
+end
+
+-- Рассчитать оффсет подлёта к мячу для Spike:
+-- летим СЗАДИ мяча относительно врагов, чтобы спайк летел вперёд
+local function getSpikeApproachPos(ball, hrp)
+    if not ball then return hrp.Position end
+    local enemyDir = getEnemyZoneDir(hrp)
+    -- Встаём позади мяча (со своей стороны) и выше
+    return ball.Position - enemyDir * 3 + Vector3.new(0, 4, 0)
+end
+
+-- ============================================================
 -- AUTO FARM UI
 -- ============================================================
 TAutoFarm:CreateSection("Auto Farm Settings")
@@ -1366,6 +1416,15 @@ TAutoFarm:CreateDropdown({
     Callback = function(opt)
         farmHitMode = type(opt)=="table" and opt[1] or opt
         Notify("Farm Mode", farmHitMode)
+    end
+})
+
+TAutoFarm:CreateToggle({
+    Name = "Aim at Enemy on Spike",
+    CurrentValue = true,
+    Callback = function(v)
+        farmAimEnemy = v
+        Notify("Aim Enemy", v and "ON — spike aims at nearest enemy" or "OFF")
     end
 })
 
@@ -1483,14 +1542,19 @@ TAutoFarm:CreateToggle({
                             and getBestHitMode(ball, hrp)
                             or  farmHitMode
 
-                        -- Предсказываем позицию мяча
-                        local predicted = predictBallPos(ball, farmPredictMul)
-                        local offset    = getTargetOffset(mode)
-                        local targetPos = predicted + offset
+                        -- Выбор позиции подлёта
+                        local targetPos
+                        if mode == "spike" then
+                            -- Для спайка — подлетаем со своей стороны позади мяча
+                            targetPos = getSpikeApproachPos(ball, hrp)
+                        else
+                            local predicted = predictBallPos(ball, farmPredictMul)
+                            targetPos = predicted + getTargetOffset(mode)
+                        end
 
                         local dist = (ball.Position - hrp.Position).Magnitude
 
-                        -- Проверяем "застрял ли" (не движемся к мячу)
+                        -- Застрял?
                         if (hrp.Position - lastPos).Magnitude < 0.3 and dist > farmHitDist + 3 then
                             stuckTimer = stuckTimer + 0.05
                         else
@@ -1498,7 +1562,6 @@ TAutoFarm:CreateToggle({
                         end
                         lastPos = hrp.Position
 
-                        -- Если застряли > 1 секунды — телепортируем ближе
                         if stuckTimer > 1.0 then
                             stuckTimer = 0
                             hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0))
@@ -1511,14 +1574,34 @@ TAutoFarm:CreateToggle({
                         if dist <= farmHitDist and (now - lastHitTime) >= hitCooldown then
                             lastHitTime = now
 
-                            -- Смотрим на мяч
-                            local lookDir = Vector3.new(
-                                ball.Position.X - hrp.Position.X,
-                                0,
-                                ball.Position.Z - hrp.Position.Z
-                            )
-                            if lookDir.Magnitude > 0.1 then
-                                hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir.Unit)
+                            if mode == "spike" and farmAimEnemy then
+                                -- Spike: смотрим на ближайшего врага
+                                local enemyHRP = findNearestEnemy(hrp)
+                                if enemyHRP then
+                                    -- Смотрим точно на врага (Y = 0 чтобы не задирать голову)
+                                    local dir = Vector3.new(
+                                        enemyHRP.Position.X - hrp.Position.X,
+                                        0,
+                                        enemyHRP.Position.Z - hrp.Position.Z
+                                    )
+                                    if dir.Magnitude > 0.1 then
+                                        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + dir.Unit)
+                                    end
+                                else
+                                    -- Врагов нет — смотрим в сторону их зоны
+                                    local dir = getEnemyZoneDir(hrp)
+                                    hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + dir)
+                                end
+                            else
+                                -- Остальные удары: смотрим на мяч
+                                local lookDir = Vector3.new(
+                                    ball.Position.X - hrp.Position.X,
+                                    0,
+                                    ball.Position.Z - hrp.Position.Z
+                                )
+                                if lookDir.Magnitude > 0.1 then
+                                    hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir.Unit)
+                                end
                             end
 
                             -- Прыжок для spike/set
