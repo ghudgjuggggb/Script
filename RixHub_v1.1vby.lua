@@ -28,11 +28,11 @@ if not LP then return end
 
 local Window = Luna:CreateWindow({
     Name = "Rix Hub",
-    Subtitle = "Volleyball Legends",
+    Subtitle = "v1.0.0 beta",
     LogoID = "130188918639066",
     LoadingEnabled = true,
     LoadingTitle = "Rix Hub",
-    LoadingSubtitle = "Loading...",
+    LoadingSubtitle = "v1.0.0 beta",
     ConfigSettings = { RootFolder = nil, ConfigFolder = "RixHub" },
     KeySystem = false
 })
@@ -846,7 +846,7 @@ end
 
 startRoundOverChecker()
 
-local TVolleyball  = Window:CreateTab({ Name="Volleyball 4.2", Icon="sports_volleyball", ImageSource="Material", ShowTitle=true })
+local TVolleyball  = Window:CreateTab({ Name="Game Modes", Icon="sports_volleyball", ImageSource="Material", ShowTitle=true })
 local TMovement    = Window:CreateTab({ Name="Movement",       Icon="directions_run",    ImageSource="Material", ShowTitle=true })
 local TAutoFarm    = Window:CreateTab({ Name="Auto Farm",      Icon="agriculture",       ImageSource="Material", ShowTitle=true })
 local TAutoSpin    = Window:CreateTab({ Name="Auto Spin",      Icon="sync",              ImageSource="Material", ShowTitle=true })
@@ -1404,6 +1404,100 @@ local function getSpikeApproachPos(ball, hrp)
 end
 
 -- ============================================================
+-- ADAPTIVE HIT SYSTEM
+-- ============================================================
+local hitStats = {
+    spike = { attempts = 0, weight = 1.0 },
+    bump  = { attempts = 0, weight = 1.0 },
+    dive  = { attempts = 0, weight = 1.0 },
+    set   = { attempts = 0, weight = 1.0 },
+}
+
+local hitHistory    = {}   -- { mode, ballVelY, dist, ballSpd, myY, ballY }
+local maxHistory    = 40
+local adaptEnabled  = true
+
+-- Записываем попытку удара
+local function recordHit(mode, ball, hrp)
+    if not ball or not hrp then return end
+    local entry = {
+        mode    = mode,
+        ballVelY= ball.Velocity.Y,
+        ballSpd = ball.Velocity.Magnitude,
+        dist    = (ball.Position - hrp.Position).Magnitude,
+        diffY   = ball.Position.Y - hrp.Position.Y,
+        time    = tick(),
+    }
+    table.insert(hitHistory, entry)
+    if #hitHistory > maxHistory then table.remove(hitHistory, 1) end
+    hitStats[mode].attempts = hitStats[mode].attempts + 1
+end
+
+-- Анализирует историю и корректирует веса режимов
+local function analyseHistory()
+    if #hitHistory < 4 then return end
+    -- Сбрасываем веса
+    for m,_ in pairs(hitStats) do hitStats[m].weight = 0.5 end
+
+    -- Считаем частоту каждого режима в последних N ударах
+    local recent = {}
+    for i = math.max(1, #hitHistory - 20), #hitHistory do
+        local e = hitHistory[i]
+        recent[e.mode] = (recent[e.mode] or 0) + 1
+    end
+
+    -- Режим который использовался меньше всего → повышаем вес
+    local minCount, minMode = math.huge, "bump"
+    for m,_ in pairs(hitStats) do
+        local c = recent[m] or 0
+        if c < minCount then minCount = c; minMode = m end
+    end
+    hitStats[minMode].weight = 1.5
+
+    -- Режим который подходит по текущей физике
+    local last = hitHistory[#hitHistory]
+    if last then
+        if last.ballVelY > 2 and last.diffY > 4 then
+            hitStats.spike.weight = hitStats.spike.weight + 0.8
+        elseif last.ballVelY < -1 and last.diffY < 0 then
+            hitStats.dive.weight  = hitStats.dive.weight  + 0.8
+        elseif last.ballSpd < 8 and last.diffY > 1 then
+            hitStats.set.weight   = hitStats.set.weight   + 0.8
+        else
+            hitStats.bump.weight  = hitStats.bump.weight  + 0.6
+        end
+    end
+end
+
+-- Выбрать лучший режим на основе весов и текущей ситуации
+local function selectBestMode(ball, hrp)
+    -- Сначала ситуационная логика
+    local base = getBestHitMode(ball, hrp)
+    if not adaptEnabled then return base end
+
+    -- Раз в 8 ударов — пересчитываем веса
+    local total = 0
+    for _, s in pairs(hitStats) do total = total + s.attempts end
+    if total > 0 and total % 8 == 0 then analyseHistory() end
+
+    -- Взвешенный случайный выбор если режим "auto"
+    if farmHitMode == "auto" then
+        local r = math.random() * (hitStats[base].weight + 0.5)
+        if r < hitStats[base].weight then
+            return base
+        end
+        -- Иногда пробуем другой режим с высоким весом
+        local best, bestW = base, 0
+        for m, s in pairs(hitStats) do
+            if s.weight > bestW then bestW = s.weight; best = m end
+        end
+        return best
+    end
+
+    return farmHitMode
+end
+
+-- ============================================================
 -- AUTO FARM UI
 -- ============================================================
 TAutoFarm:CreateSection("Auto Farm Settings")
@@ -1425,6 +1519,18 @@ TAutoFarm:CreateToggle({
     Callback = function(v)
         farmAimEnemy = v
         Notify("Aim Enemy", v and "ON — spike aims at nearest enemy" or "OFF")
+    end
+})
+
+TAutoFarm:CreateToggle({
+    Name = "Adaptive Hit System",
+    CurrentValue = true,
+    Callback = function(v)
+        adaptEnabled = v
+        if not v then
+            for m,_ in pairs(hitStats) do hitStats[m].weight = 1.0 end
+        end
+        Notify("Adaptive System", v and "ON" or "OFF — weights reset")
     end
 })
 
@@ -1537,10 +1643,8 @@ TAutoFarm:CreateToggle({
                             return
                         end
 
-                        -- Определяем режим
-                        local mode = farmHitMode == "auto"
-                            and getBestHitMode(ball, hrp)
-                            or  farmHitMode
+                        -- Определяем режим (адаптивная система)
+                        local mode = selectBestMode(ball, hrp)
 
                         -- Выбор позиции подлёта
                         local targetPos
@@ -1623,6 +1727,9 @@ TAutoFarm:CreateToggle({
                                 task.wait(0.04)
                                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
                             end
+
+                            -- Записываем удар для адаптивной системы
+                            recordHit(mode, ball, hrp)
                         end
                     end)
                 end
@@ -2312,19 +2419,20 @@ TProtection:CreateButton({
     end
 })
 
-TAbout:CreateLabel({ Text="Rix Hub v3.0 Full Merge", Style=1 })
+TAbout:CreateLabel({ Text = "Rix Hub v1.0.0 beta", Style = 1 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text="Volleyball Legends", Style=2 })
+TAbout:CreateLabel({ Text = "v1.0.0 beta", Style = 2 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text="Player: "..LP.Name, Style=1 })
+TAbout:CreateLabel({ Text = "Player: " .. LP.Name, Style = 1 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text="Sources Merged:", Style=1 })
-TAbout:CreateLabel({ Text="✓ RixHub (base)", Style=2 })
-TAbout:CreateLabel({ Text="✓ ZeckHub (ball hitbox, lines, jump esp)", Style=2 })
-TAbout:CreateLabel({ Text="✓ Sterling Hub (powers, hitboxes, auto spin)", Style=2 })
-TAbout:CreateLabel({ Text="✓ Volleyball 4.2 (setting, serving, spiking)", Style=2 })
+TAbout:CreateLabel({ Text = "Features:", Style = 1 })
+TAbout:CreateLabel({ Text = "✓ Smart Auto Farm + Targeting", Style = 2 })
+TAbout:CreateLabel({ Text = "✓ Ball & Skill Hitboxes", Style = 2 })
+TAbout:CreateLabel({ Text = "✓ Visuals & ESP", Style = 2 })
+TAbout:CreateLabel({ Text = "✓ Volleyball Modes", Style = 2 })
+TAbout:CreateLabel({ Text = "✓ Protection Systems", Style = 2 })
 TAbout:CreateDivider()
-TAbout:CreateLabel({ Text="50+ Features | All RemoteEvents", Style=1 })
+TAbout:CreateLabel({ Text = "50+ Features", Style = 1 })
 TAbout:CreateDivider()
 
 TAbout:CreateButton({
@@ -2382,5 +2490,5 @@ Players.PlayerAdded:Connect(function(p)
     if AntiCheatEnabled then ProtectedPlayers[p.Name] = true end
 end)
 
-Notify("Rix Hub", "v3.0 Full Merge Loaded!")
-print("✅ RixHub v3.0 Full Merge Ready | 50+ Features")
+Notify("Rix Hub", "v1.0.0 beta — Ready!")
+print("✅ Rix Hub v1.0.0 beta | Volleyball Legends")
