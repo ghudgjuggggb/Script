@@ -3,16 +3,37 @@ repeat task.wait() until game:IsLoaded()
 
 pcall(function() setclipboard("discord.gg/sPCKm8juf") end)
 
+local Luna
 
+local _lunaUrls = {
+ "https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua",
+ "https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/main/source.lua",
+}
 
-local lunaUrl = "https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua"
-local lunaLoaded, lunaResult = pcall(function()
- return loadstring(game:HttpGet(lunaUrl, true))()
-end)
-if not lunaLoaded or type(lunaResult) ~= "table" then
- error("[RixHub] Luna failed to load: " .. tostring(lunaResult))
+local _lunaLoaded = false
+
+for _, url in ipairs(_lunaUrls) do
+ if _lunaLoaded then break end
+ for attempt = 1, 3 do
+  local ok, result = pcall(function()
+   local src = game:HttpGet(url, true)
+   if not src or src == "" then error("empty") end
+   local fn = loadstring(src)
+   if type(fn) ~= "function" then error("loadstring nil") end
+   return fn()
+  end)
+  if ok and type(result) == "table" then
+   Luna = result
+   _lunaLoaded = true
+   break
+  end
+  task.wait(1.5)
+ end
 end
-local Luna = lunaResult
+
+if not _lunaLoaded or not Luna then
+ error("[RixHub] Failed to load UI library after all attempts. Check your internet connection.")
+end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
