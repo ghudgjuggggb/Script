@@ -10,7 +10,7 @@ local HttpService = game:GetService("HttpService")
 if getgenv().OctopusLoaded then return end
 getgenv().OctopusLoaded = true
 
-local LogoId = "rbxassetid://71360187256646"
+local LogoId = "rbxasset://textures/GameAssets/ui_icon_list_star.png"
 local AdaptationData = {}
 
 local function Notify(title, text, duration)
@@ -323,18 +323,7 @@ local function AntiKick()
                 return oldKick(self, ...)
             end)
         end)
-
-        pcall(function()
-            local oldDestroy = hookfunction(LocalPlayer.Destroy, function(self, ...)
-                if self == LocalPlayer then
-                    return nil
-                end
-                return oldDestroy(self, ...)
-            end)
-        end)
     end
-
-    LocalPlayer.Kick = function() end
 
     if getconnections then
         pcall(function()
